@@ -2,129 +2,364 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.IO;
 using Indexador_GCBA_.Datos;
+using Indexador_GCBA_.Servicios;
 using PdfiumViewer;
-using System.Reflection;
-using System.Linq;
-
-
-
 
 namespace Indexador_GCBA_
 {
     public partial class FormActasDeNacimiento : Form
     {
+        private Entidades.Indexador oIndexador = new Entidades.Indexador();
 
-      
+        private Graphics Lienzo;
+        private string RutaNombreImagen = string.Empty;
 
-        Entidades.Indexador oIndexador = new Entidades.Indexador();
-        Graphics Lienzo;
-        string RutaNombreImagen = "";
-        int usuariocoincide = 0;
-        int inicio = 0;
-        int mes_inscripcion = 0;
-        int pixelgriss = 0;
-        string rutaactasprecesadas= "J:\\BDs\\RCproc\\ACTAS\\PROCESADAS\\";
-      //  string rutaactasprecesadaslocal = "C:\\Users\\20330200570\\Desktop\\Rcproc\\ACTAS\\PROCESADAS\\";
-        string rutaverificada = "J:\\BDs\\RC\\ACTAS_VERIFICADAS";
-        //  string rutaverificadalocal = "C:\\Users\\20330200570\\Desktop\\Rc\\ACTAS\\VERIFICADAS";
-        int editar = 0;
-     
+        private int usuariocoincide = 0;
+        private int inicio = 0;
+        private int pixelgriss = 0;
+        private int editar = 0;
+
+        // ==========================================================
+        // RUTAS CUD
+        // Ajustalas a tus carpetas reales cuando definas ambiente final.
+        // ==========================================================
+        private readonly string rutaCudProcesadas = @"J:\BDs\CUDproc\PROCESADAS\";
+        private readonly string rutaCudVerificada = @"J:\BDs\CUD\CERTIFICADOS_VERIFICADOS\";
+        private readonly string rutaCudIlegibles = @"J:\BDs\CUD\ILEGIBLES\";
+
+        // ==========================================================
+        // VALIDACIÓN / UX CUD
+        // ==========================================================
+        private readonly ErrorProvider _erroresCud = new ErrorProvider();
+        private readonly ToolTip _toolTipCud = new ToolTip();
+
+        private bool _normalizandoCud = false;
+        private bool _cargandoDatosCud = false;
+
+        private string _ultimoDniAuto = string.Empty;
+        private string _ultimaEmisionAuto = string.Empty;
+        private string _ultimoVencimientoAuto = string.Empty;
+
+        private readonly Color _colorOk = SystemColors.Window;
+        private readonly Color _colorError = Color.MistyRose;
+        private readonly Color _colorAdvertencia = Color.LemonChiffon;
+        private readonly Color _colorAuto = Color.FromArgb(226, 246, 255);
+
+        // ==========================================================
+        // PICTUREBOX / RESALTADO
+        // ==========================================================
+        private int OriginalWidth = 911;
+        private int OriginalHeight = 564;
+
+        private int lastX;
+        private int lastY;
+        private int lastWidth;
+        private int lastHeight;
+        private bool _autocompletandoCuil = false;
+        private bool _sincronizandoCamposCud = false;
+
         public FormActasDeNacimiento(Entidades.Indexador pIndexador)
         {
             InitializeComponent();
-          
+
             oIndexador = pIndexador;
             WindowState = FormWindowState.Maximized;
+
             DesHabilarBotones();
+
             ListEmbeddedResources();
             ExtractPdfium();
-            txtNumero_Acta.KeyPress += ValidarSoloNumeros;
-            txtAnio_Acta.KeyPress += ValidarSoloNumeros;
-            txtDia_inscripcion.KeyPress += ValidarSoloNumeros;
-            txtAño_Inscripcion.KeyPress += ValidarSoloNumeros;
-            txtDia_Nacimiento.KeyPress += ValidarSoloNumeros;
-            txtAño_Nacimiento.KeyPress += ValidarSoloNumeros;
-            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom; // Asegura que la imagen se ajusta correctamente
-            pictureBox1.SizeChanged += PictureBox1_SizeChanged; // Detectar cambio de tamaño del PictureBox
 
+            pictureBox1.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBox1.SizeChanged += PictureBox1_SizeChanged;
 
+            ConfigurarFormularioCud();
         }
 
-        private void ListEmbeddedResources()
+        // ==========================================================
+        // CONFIGURACIÓN GENERAL CUD
+        // ==========================================================
+
+        private void ConfigurarFormularioCud()
         {
-            var resources = Assembly.GetExecutingAssembly().GetManifestResourceNames();
+            _erroresCud.BlinkStyle = ErrorBlinkStyle.NeverBlink;
 
-            Console.WriteLine("Recursos incrustados en el ensamblado:");
-            foreach (var resource in resources)
-            {
-                Console.WriteLine(resource);
-            }
+            _toolTipCud.AutoPopDelay = 8000;
+            _toolTipCud.InitialDelay = 300;
+            _toolTipCud.ReshowDelay = 100;
+
+            DesvincularEventosViejosActas();
+            ConfigurarCombosCud();
+            ConfigurarEventosCud();
+            ConfigurarOrdenTabulacionCud();
+            RestaurarColoresFormularioCud();
         }
 
-        private void ExtractPdfium()
+        private void DesvincularEventosViejosActas()
         {
-            string resourceName = "Indexador_GCBA_.pdfium.dll"; // Nombre exacto del recurso
-            string outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pdfium.dll");
+            // Evita que eventos viejos del diseñador o del formulario anterior
+            // se ejecuten junto con la lógica nueva de CUD.
 
-            Console.WriteLine($"📂 Extrayendo pdfium.dll a: {outputPath}");
+            TxtNumeCert.KeyDown -= TxtNumeCert_KeyDown;
+            TxtNumeCert.KeyPress -= TxtNumeCert_KeyPress;
+            TxtNumeCert.MouseClick -= TxtNumeCert_MouseClick;
 
-            if (!File.Exists(outputPath))
-            {
-                using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
-                {
-                    if (stream == null)
-                    {
-                        Console.WriteLine($"❌ Error: No se encontró el recurso {resourceName}.");
-                        return;
-                    }
+            TxtApellidoNombre.KeyDown -= txtTomo_Acta_KeyDown;
+            CmbSexo.KeyDown -= txtNumero_Acta_KeyDown;
+            TxtNumDNI.KeyDown -= txtAnio_Acta_KeyDown;
+            TxtNumCuil.KeyDown -= txtDia_inscripcion_KeyDown;
+            TxtFechaNac.KeyDown -= txtMes_Inscripcion_KeyDown;
+            TxtDiagnostico.KeyDown -= txtAño_Inscripcion_KeyDown;
+            TxtFuncionesCorporales.KeyDown -= txtNombre_Nacido_KeyDown;
+            TxtEstructurasCorporales.KeyDown -= txtCNI_Numero_KeyDown;
+            TxtActividad_Particip.KeyDown -= txtSexo_Nacido_KeyDown;
+            TxtFactoresAmbientales.KeyDown -= txtDia_Nacimiento_KeyDown;
+            TxtOrientacion.KeyDown -= txtMes_Nacimiento_KeyDown;
+            TxtFechaVencimiento.KeyDown -= txtAño_Nacimiento_KeyDown;
+            CmbAcomapante.KeyDown -= txtNombre_Padre_KeyDown;
+            TxtFechaEmision.KeyDown -= txtNombre_Madre_KeyDown;
 
-                    using (var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
-                    {
-                        stream.CopyTo(fileStream);
-                    }
-
-                    Console.WriteLine($"✅ pdfium.dll extraída en {outputPath}");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"🔹 pdfium.dll ya existe en {outputPath}, no se necesita extraer.");
-            }
+            TxtOrientacion.TextChanged -= txtMes_Nacimiento_TextChanged;
+            TxtFechaNac.TextChanged -= txtMes_Inscripcion_TextChanged;
+            TxtActividad_Particip.TextChanged -= txtSexo_Nacido_TextChanged;
         }
 
-
-
-
-
-        private void PictureBox1_SizeChanged(object sender, EventArgs e)
+        private void ConfigurarCombosCud()
         {
-            if (lastWidth > 0 && lastHeight > 0) // Verifica si hay un rectángulo almacenado
+            CmbSexo.DropDownStyle = ComboBoxStyle.DropDownList;
+            CmbSexo.Items.Clear();
+            CmbSexo.Items.AddRange(new object[]
             {
-                ResaltarCampo(lastX, lastY, lastWidth, lastHeight);
-            }
+                "",
+                "FEMENINO",
+                "MASCULINO",
+                "X",
+                "NO ESPECIFICA"
+            });
+            CmbSexo.SelectedIndex = 0;
+
+            CmbAcomapante.DropDownStyle = ComboBoxStyle.DropDownList;
+            CmbAcomapante.Items.Clear();
+            CmbAcomapante.Items.AddRange(new object[]
+            {
+                "",
+                "SI",
+                "NO"
+            });
+            CmbAcomapante.SelectedIndex = 0;
         }
 
-      
+        private void ConfigurarEventosCud()
+        {
+            // Escritura preventiva.
+            TxtNumeCert.KeyPress += KeyPressNumeroCertificadoCud;
+            TxtNumDNI.KeyPress += KeyPressSoloNumerosCud;
+            TxtNumCuil.KeyPress += KeyPressSoloNumerosCud;
+
+            TxtFechaNac.KeyPress += KeyPressFechaCud;
+            TxtFechaEmision.KeyPress += KeyPressFechaCud;
+            TxtFechaVencimiento.KeyPress += KeyPressFechaCud;
+
+            TxtFuncionesCorporales.KeyPress += KeyPressCodigoCifCud;
+            TxtEstructurasCorporales.KeyPress += KeyPressCodigoCifCud;
+            TxtActividad_Particip.KeyPress += KeyPressCodigoCifCud;
+            TxtFactoresAmbientales.KeyPress += KeyPressCodigoCifCud;
+
+            // Pegado / OCR / normalización en vivo.
+            TxtNumeCert.TextChanged += TxtNumeCert_TextChangedCud;
+
+         
+            TxtNumCuil.TextChanged += TxtNumCuil_TextChangedCud;
+
+            TxtFuncionesCorporales.TextChanged += CodigoCif_TextChangedCud;
+            TxtEstructurasCorporales.TextChanged += CodigoCif_TextChangedCud;
+            TxtActividad_Particip.TextChanged += CodigoCif_TextChangedCud;
+            TxtFactoresAmbientales.TextChanged += CodigoCif_TextChangedCud;
+         
+
+            // Validación al salir.
+            TxtNumeCert.Leave += TxtNumeCert_LeaveCud;
+            TxtApellidoNombre.Leave += TxtApellidoNombre_LeaveCud;
+            TxtNumDNI.Leave += TxtNumDNI_LeaveCud;
+            TxtNumCuil.Leave += TxtNumCuil_LeaveCud;
+            TxtNumCuil.TextChanged += TxtNumCuil_TextChangedCud;
 
 
+            TxtFechaNac.Leave += Fecha_LeaveCud;
+            TxtFechaEmision.Leave += Fecha_LeaveCud;
+            TxtFechaVencimiento.Leave += Fecha_LeaveCud;
 
+            TxtDiagnostico.Leave += TextoLibre_LeaveCud;
+            TxtOrientacion.Leave += TxtOrientacion_LeaveCud;
+
+            TxtFuncionesCorporales.Leave += CodigoCif_LeaveCud;
+            TxtEstructurasCorporales.Leave += CodigoCif_LeaveCud;
+            TxtActividad_Particip.Leave += CodigoCif_LeaveCud;
+            TxtFactoresAmbientales.Leave += CodigoCif_LeaveCud;
+
+            CmbSexo.SelectedIndexChanged += Combo_ChangedCud;
+            CmbAcomapante.SelectedIndexChanged += Combo_ChangedCud;
+
+            // Navegación productiva.
+            foreach (Control c in ObtenerControlesCargaCud())
+            {
+                c.KeyDown += ControlCarga_KeyDownCud;
+            }
+
+            btnGrabar.KeyDown += ControlCarga_KeyDownCud;
+        }
+
+        private void TxtNumCuil_TextChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud || _normalizandoCud || _autocompletandoCuil || _sincronizandoCamposCud)
+                return;
+
+            string cuilActual = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
+            string dni = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+
+            // Solo autocompleta cuando el usuario escribió exactamente los 2 primeros dígitos.
+            if (cuilActual.Length != 2)
+                return;
+
+            if (string.IsNullOrWhiteSpace(dni))
+            {
+                MarcarCampo(
+                    TxtNumCuil,
+                    ResultadoValidacion.Advertencia("Cargue primero el DNI para autocompletar el CUIL."));
+
+                return;
+            }
+
+            if (dni.Length < 7 || dni.Length > 8)
+            {
+                MarcarCampo(
+                    TxtNumCuil,
+                    ResultadoValidacion.Advertencia("El DNI debe tener 7 u 8 dígitos para autocompletar el CUIL."));
+
+                return;
+            }
+
+            string dni8 = dni.PadLeft(8, '0');
+            string cuilBase = cuilActual + dni8;
+
+            _autocompletandoCuil = true;
+
+            TxtNumCuil.Text = cuilBase;
+            TxtNumCuil.SelectionStart = TxtNumCuil.Text.Length;
+            TxtNumCuil.SelectionLength = 0;
+
+            _autocompletandoCuil = false;
+
+            MarcarCampoAuto(
+                TxtNumCuil,
+                "CUIL autocompletado con el DNI. Ingrese el último dígito verificador.");
+        }
+        private void ActualizarNumeroCertificadoDesdeDni(string dni)
+        {
+            dni = IndexadorCudService.NormalizarDni(dni);
+
+            if (dni.Length < 7 || dni.Length > 8)
+                return;
+
+            string numero = IndexadorCudService.NormalizarNumeroCertificado(TxtNumeCert.Text);
+
+            if (string.IsNullOrWhiteSpace(numero))
+                return;
+
+            string[] partes = numero.Split('-');
+
+            // Formato esperado:
+            // ARG-02-00011132502-20231219-20321219-CBA-536
+            if (partes.Length != 7)
+                return;
+
+            // Solo tocamos el segmento DNI, no reconstruimos todo.
+            partes[2] = dni.PadLeft(11, '0');
+
+            string nuevoNumero = string.Join("-", partes);
+
+            TxtNumeCert.Text = nuevoNumero;
+            _ultimoDniAuto = dni;
+
+            MarcarCampoAuto(
+                TxtNumeCert,
+                "Número de certificado sincronizado con el DNI cargado.");
+        }
+
+
+        private void ConfigurarOrdenTabulacionCud()
+        {
+            TxtNumeCert.TabIndex = 0;
+            TxtApellidoNombre.TabIndex = 1;
+            CmbSexo.TabIndex = 2;
+            TxtNumDNI.TabIndex = 3;
+            TxtNumCuil.TabIndex = 4;
+            TxtFechaNac.TabIndex = 5;
+            TxtDiagnostico.TabIndex = 6;
+            TxtFuncionesCorporales.TabIndex = 7;
+            TxtEstructurasCorporales.TabIndex = 8;
+            TxtActividad_Particip.TabIndex = 9;
+            TxtFactoresAmbientales.TabIndex = 10;
+
+            // ORDEN CORRECTO FINAL
+            TxtOrientacion.TabIndex = 11;
+            TxtFechaVencimiento.TabIndex = 12;
+            CmbAcomapante.TabIndex = 13;
+            TxtFechaEmision.TabIndex = 14;
+            btnGrabar.TabIndex = 15;
+
+            foreach (Control c in ObtenerControlesCargaCud())
+            {
+                c.TabStop = true;
+            }
+
+            btnGrabar.TabStop = true;
+        }
+
+        private List<Control> ObtenerControlesCargaCud()
+        {
+            return new List<Control>
+    {
+        TxtNumeCert,
+        TxtApellidoNombre,
+        CmbSexo,
+        TxtNumDNI,
+        TxtNumCuil,
+        TxtFechaNac,
+        TxtDiagnostico,
+        TxtFuncionesCorporales,
+        TxtEstructurasCorporales,
+        TxtActividad_Particip,
+        TxtFactoresAmbientales,
+
+        // ORDEN CORRECTO FINAL
+        TxtOrientacion,
+        TxtFechaVencimiento,
+        CmbAcomapante,
+        TxtFechaEmision
+    };
+        }
+
+        // ==========================================================
+        // BOTONES
+        // ==========================================================
 
         private void HabilitarBotones()
         {
             btnGrabar.Enabled = true;
             btnSepararIlegible.Enabled = true;
-
         }
 
         private void DesHabilarBotones()
         {
             btnGrabar.Enabled = false;
             btnSepararIlegible.Enabled = false;
-
         }
 
         private async void btnSeleccionarLote_Click(object sender, EventArgs e)
@@ -135,27 +370,34 @@ namespace Indexador_GCBA_
 
             await Task.Run(() =>
             {
-                DirectoryInfo di1 = new DirectoryInfo(rutaactasprecesadas);
+                if (!Directory.Exists(rutaCudProcesadas))
+                    return;
 
-                foreach (var items in di1.GetDirectories())
+                DirectoryInfo di1 = new DirectoryInfo(rutaCudProcesadas);
+
+                foreach (DirectoryInfo carpeta in di1.GetDirectories())
                 {
-                    string apellido = items.Name;
-                    if (string.IsNullOrEmpty(apellido)) continue;
+                    string grupo = carpeta.Name;
+                    if (string.IsNullOrWhiteSpace(grupo))
+                        continue;
 
-                    DirectoryInfo diap = new DirectoryInfo(Path.Combine(rutaactasprecesadas, apellido));
+                    DirectoryInfo diGrupo = new DirectoryInfo(Path.Combine(rutaCudProcesadas, grupo));
 
-                    foreach (var items1 in diap.GetDirectories())
+                    foreach (DirectoryInfo loteDir in diGrupo.GetDirectories())
                     {
-                        string lote = items1.Name;
-                        if (string.IsNullOrEmpty(lote)) continue;
+                        string lote = loteDir.Name;
+                        if (string.IsNullOrWhiteSpace(lote))
+                            continue;
 
-                        string lotea = loteasignado(lote, apellido);
-                        if (string.IsNullOrEmpty(lotea)) continue;
+                        string loteAsignado = loteasignado(lote, grupo);
+                        if (string.IsNullOrWhiteSpace(loteAsignado))
+                            continue;
 
-                        string rutaLote = Path.Combine(rutaactasprecesadas, apellido, lotea);
+                        string rutaLote = Path.Combine(rutaCudProcesadas, grupo, loteAsignado);
+
                         usuarioAsignado = new ObtenerDatos().Consultaloteasignado(rutaLote);
 
-                        if (string.IsNullOrEmpty(usuarioAsignado))
+                        if (string.IsNullOrWhiteSpace(usuarioAsignado))
                         {
                             usuarioAsignado = txtUsuario.Text;
                             new ProduccionAccess().loteasignado(rutaLote, usuarioAsignado.Replace("Usuario: ", ""));
@@ -164,292 +406,317 @@ namespace Indexador_GCBA_
                         loteSeleccionado = rutaLote;
                         break;
                     }
-                    if (loteSeleccionado != null) break;
+
+                    if (!string.IsNullOrWhiteSpace(loteSeleccionado))
+                        break;
                 }
             });
 
-            if (!string.IsNullOrEmpty(loteSeleccionado))
+            if (!string.IsNullOrWhiteSpace(loteSeleccionado))
             {
                 txtRutaLote.Text = loteSeleccionado;
                 CargarDocumentosEnSegundoPlano(loteSeleccionado);
             }
+            else
+            {
+                btnSeleccionarLote.Enabled = true;
+                MessageBox.Show("No se encontraron lotes CUD disponibles para indexar.", "Indexador CUD",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
+
+        private void btnGrabar_Click(object sender, EventArgs e)
+        {
+            if (!ValidarFormularioCudCompleto())
+                return;
+
+            CertificadoCudDto dto = ObtenerDtoCudDesdePantalla();
+            GrabarCud(dto);
+        }
+
+        private void btnSepararIlegible_Click(object sender, EventArgs e)
+        {
+            if (lboxIndice.SelectedIndex == -1)
+            {
+                MessageBox.Show("Debe seleccionar un certificado antes de marcarlo como ILEGIBLE.",
+                    "Indexador CUD", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int numeroLineaActual = lboxIndice.SelectedIndex;
+            int numeroLineaSiguiente = numeroLineaActual + 1;
+
+            string lineaOriginal = txtNombreImagen.Text + ";";
+            string nuevoNombreImagen = "ILEGIBLE";
+
+            lboxIndice.Items.Insert(numeroLineaActual, lineaOriginal + nuevoNombreImagen);
+
+            if (numeroLineaSiguiente < lboxIndice.Items.Count)
+                lboxIndice.Items.RemoveAt(numeroLineaSiguiente);
+
+            string rutaProcesada = txtRutaLote.Text;
+            string rutaOrigenPdf = Path.Combine(rutaProcesada, txtNombreImagen.Text + ".pdf");
+
+            Directory.CreateDirectory(rutaCudIlegibles);
+            string destinoIlegible = Path.Combine(rutaCudIlegibles, txtNombreImagen.Text + ".pdf");
+
+            try
+            {
+                if (File.Exists(rutaOrigenPdf) && !File.Exists(destinoIlegible))
+                    File.Copy(rutaOrigenPdf, destinoIlegible);
+
+                EliminarArchivoOrigenConReintentos(rutaOrigenPdf);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error al procesar el certificado ilegible: " + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+            PasarAlSiguiente(numeroLineaActual, numeroLineaSiguiente, txtNombreImagen.Text);
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            string pindexador = txtUsuario.Text;
+
+            if (lboxIndice.Items.Count == 0 && !string.IsNullOrWhiteSpace(txtRutaLote.Text))
+            {
+                ProduccionAccess oinsertar = new ProduccionAccess();
+                oinsertar.CerrarLoteAsignado(txtRutaLote.Text, pindexador.Replace("Usuario: ", ""));
+
+                txtRutaLote.Text = string.Empty;
+                btnSeleccionarLote.Enabled = true;
+            }
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            DialogResult result = MessageBox.Show("¿Desea pasar el lote completo a ILEGIBLE?",
+                "Confirmación", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+
+            if (result != DialogResult.OK)
+                return;
+
+            string origen = txtRutaLote.Text;
+
+            if (!Directory.Exists(origen))
+            {
+                MessageBox.Show("La carpeta de origen no existe.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(rutaCudIlegibles);
+
+                string carpetaNombre = new DirectoryInfo(origen).Name;
+                string destinoCompleto = Path.Combine(rutaCudIlegibles, carpetaNombre);
+
+                if (!Directory.Exists(destinoCompleto))
+                {
+                    Directory.Move(origen, destinoCompleto);
+                }
+                else
+                {
+                    CopyDirectory(origen, destinoCompleto);
+                    Directory.Delete(origen, true);
+                }
+
+                if (lboxIndice.Items.Count == 0 && !string.IsNullOrWhiteSpace(txtRutaLote.Text))
+                {
+                    string pindexador = txtUsuario.Text;
+                    ProduccionAccess oinsertar = new ProduccionAccess();
+                    oinsertar.CerrarLoteAsignado(txtRutaLote.Text, pindexador.Replace("Usuario: ", ""));
+
+                    txtRutaLote.Text = string.Empty;
+                    btnSeleccionarLote.Enabled = true;
+                }
+
+                VaciarFormulario();
+                MessageBox.Show("El lote se movió correctamente a ILEGIBLE.", "Indexador CUD",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (IOException ex)
+            {
+                MessageBox.Show("Error al mover el lote. Puede haber archivos en uso: " + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error inesperado: " + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void btnSalir_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+
+        // ==========================================================
+        // LOTES / DOCUMENTOS
+        // ==========================================================
 
         private async void CargarDocumentosEnSegundoPlano(string rutaLote)
         {
+            if (!Directory.Exists(rutaLote))
+            {
+                MessageBox.Show("La carpeta del lote no existe.", "Indexador CUD",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             DirectoryInfo dilo = new DirectoryInfo(rutaLote);
             ObtenerDatos oconsulta = new ObtenerDatos();
-            bool primerElemento = true; // Variable para seleccionar solo el primer elemento
+            bool primerElemento = true;
 
-            foreach (var file in dilo.GetFiles("*.pdf"))
+            foreach (FileInfo file in dilo.GetFiles("*.pdf"))
             {
                 string fileName = Path.GetFileNameWithoutExtension(file.Name);
 
                 if (usuariocoincide == 1)
                 {
                     int verificado = await Task.Run(() => oconsulta.Consultaactaverificada(file.FullName));
-                    if (verificado == 0)
-                    {
-                        Invoke(new Action(() =>
-                        {
-                            lboxIndice.Items.Add(fileName);
-                            if (primerElemento) // Seleccionar el primer elemento agregado
-                            {
-                                lboxIndice.SelectedIndex = 0;
-                                CargarIndiceFijoEImagen(); // Cargar la imagen asociada
-                                primerElemento = false;
-                            }
-                        }));
-                    }
+
+                    if (verificado != 0)
+                        continue;
                 }
-                else
+
+                Invoke(new Action(() =>
                 {
-                    Invoke(new Action(() =>
+                    lboxIndice.Items.Add(fileName);
+
+                    if (primerElemento)
                     {
-                        lboxIndice.Items.Add(fileName);
-                        if (primerElemento) // Seleccionar el primer elemento agregado
-                        {
-                            lboxIndice.SelectedIndex = 0;
-                            CargarIndiceFijoEImagen(); // Cargar la imagen asociada
-                            primerElemento = false;
-                        }
-                    }));
-                }
+                        lboxIndice.SelectedIndex = 0;
+                        CargarIndiceFijoEImagen();
+                        primerElemento = false;
+                    }
+                }));
             }
+
+            Invoke(new Action(() =>
+            {
+                if (lboxIndice.Items.Count == 0)
+                {
+                    btnSeleccionarLote.Enabled = true;
+                    MessageBox.Show("El lote no contiene certificados pendientes.", "Indexador CUD",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }));
         }
 
-
-
-
-        private string loteasignado(string lote, string apellido)
+        private string loteasignado(string lote, string grupo)
         {
             usuariocoincide = 0;
 
-            string lotet = lote;
-            DirectoryInfo dilo = new DirectoryInfo(rutaactasprecesadas + apellido);
-            string ruta = rutaactasprecesadas + apellido + "\\" + lote;
-            foreach (var items1 in dilo.GetDirectories())
+            string rutaGrupo = Path.Combine(rutaCudProcesadas, grupo);
+            string rutaLote = Path.Combine(rutaGrupo, lote);
 
+            if (!Directory.Exists(rutaGrupo))
+                return string.Empty;
+
+            ObtenerDatos oconsulta = new ObtenerDatos();
+            string consulta = oconsulta.Consultaloteasignado(rutaLote);
+            string pindexador = txtUsuario.Text.Replace("Usuario: ", "");
+
+            if (!string.IsNullOrWhiteSpace(consulta))
             {
-
-                ObtenerDatos oconsulta = new ObtenerDatos();
-
-
-                string consulta = oconsulta.Consultaloteasignado(ruta);
-                string pindexador = txtUsuario.Text;
-
-                if (consulta != "")
+                if (consulta == pindexador)
                 {
-
-                    if (consulta == pindexador.Replace("Usuario: ", ""))
-                    {
-                        usuariocoincide = 1;
-                        lotet = lote;
-                        return lotet;
-
-
-                    }
-                    else
-                    {
-
-                    }
-                }
-                else
-                {
-
-                    return lotet;
-
+                    usuariocoincide = 1;
+                    return lote;
                 }
 
+                return string.Empty;
             }
 
-            return "";
+            return lote;
         }
 
-
-        private void btnGrabar_Click(object sender, EventArgs e)
+        private void CargarIndiceFijoEImagen()
         {
-            if (txtNumero_Acta.Text.Length < 4)
-            {
-                txtNumero_Acta.Text = txtNumero_Acta.Text.PadLeft(4, '0');
+            editar = 0;
+            CargarDatosFijosIndice();
 
+            string nombreIndice = txtNombreImagen.Text;
+
+            if (nombreIndice.Contains(";"))
+            {
+                txtNombreImagen.Text = nombreIndice.Substring(nombreIndice.IndexOf(';') + 1);
+                RutaNombreImagen = Path.Combine(rutaCudVerificada, txtNombreImagen.Text + ".pdf");
+                editar = 1;
             }
-            // Lista de TextBox obligatorios
-            TextBox[] camposObligatorios = {
-        txtAño_Inscripcion, txtMes_Inscripcion, txtDia_inscripcion,
-        txtAnio_Acta, txtNumero_Acta, txtTomo_Acta, txtCircunscripcion_Acta,
-        txtNombre_Nacido, txtCNI_Numero, txtSexo_Nacido, txtDia_Nacimiento,
-        txtMes_Nacimiento, txtAño_Nacimiento, txtNombre_Padre, txtNombre_Madre
-    };
-
-            // Validar que todos los campos estén completos
-            foreach (TextBox campo in camposObligatorios)
+            else
             {
-                if (string.IsNullOrWhiteSpace(campo.Text))
-                {
-                    campo.BackColor = System.Drawing.Color.LightCoral;
-                    campo.Focus();
-                    MessageBox.Show("Falta completar campos obligatorios");
-                    return; // Sale del método si falta un campo
-                }
-                else
-                {
-                    campo.BackColor = SystemColors.Window; // Restablece el color si está correcto
-                }
+                RutaNombreImagen = Path.Combine(txtRutaLote.Text, txtNombreImagen.Text + ".pdf");
             }
 
-            // Conversión de Mes a Número (optimizado con Dictionary)
-            // Diccionario para convertir el mes de texto a número
-            Dictionary<string, int> meses = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-{
-    { "ENERO", 1 }, { "FEBRERO", 2 }, { "MARZO", 3 }, { "ABRIL", 4 },
-    { "MAYO", 5 }, { "JUNIO", 6 }, { "JULIO", 7 }, { "AGOSTO", 8 },
-    { "SEPTIEMBRE", 9 }, { "OCTUBRE", 10 }, { "NOVIEMBRE", 11 }, { "DICIEMBRE", 12 }
-};
-
-            // Intentar convertir el mes de inscripción
-            if (!meses.TryGetValue(txtMes_Inscripcion.Text.Trim().ToUpper(), out int mesInscripcion))
-            {
-                MessageBox.Show("Mes de inscripción inválido. Debe ser un mes válido (Ejemplo: ENERO, FEBRERO, etc.)",
-                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtMes_Inscripcion.BackColor = Color.LightCoral;
-                txtMes_Inscripcion.Focus();
-                return; // Detiene el proceso si el mes es inválido
-            }
-
-            // Si todos los campos están completos, proceder con la grabación
-            Grabar(mesInscripcion);
+            inicio = 1;
+            CargarFicha(RutaNombreImagen);
+            TxtNumeCert.Focus();
         }
 
-
-        private void Grabar(int mesInscripcion)
+        private void CargarDatosFijosIndice()
         {
-            if (txtNumero_Acta.Text.Length < 4)
-            {
-                txtNumero_Acta.Text = txtNumero_Acta.Text.PadLeft(4, '0');
+            if (lboxIndice.SelectedItem != null)
+                txtNombreImagen.Text = lboxIndice.SelectedItem.ToString();
+        }
 
-            }
-            // Verificar si hay un elemento seleccionado en lboxIndice
+        private void CargarFicha(string ruta)
+        {
+            CargarPDFEnPictureBox(ruta);
+            HabilitarBotones();
+        }
+
+        private void lboxIndice_MouseClick(object sender, MouseEventArgs e)
+        {
             if (lboxIndice.SelectedIndex == -1)
-            {
-                MessageBox.Show("Debe seleccionar un índice antes de grabar.");
                 return;
-            }
 
-            int NumeroLineaActual = lboxIndice.SelectedIndex;
-            int NumeroLineaSiguiente = NumeroLineaActual + 1;
+            LimpiarTextBox();
+            CargarIndiceFijoEImagen();
 
-            string LineaOriginal = txtNombreImagen.Text + ";";
-            string LineaOriginal2 = txtNombreImagen.Text;
-
-            // Construcción del nuevo nombre de imagen
-            string NuevoNombreImagen = $"{txtAnio_Acta.Text}-{txtCircunscripcion_Acta.Text}-{txtTomo_Acta.Text}-{txtNumero_Acta.Text}";
-
-            // Insertar la nueva línea y eliminar la anterior
-            lboxIndice.Items.Insert(NumeroLineaActual, LineaOriginal + NuevoNombreImagen);
-
-            if (NumeroLineaSiguiente < lboxIndice.Items.Count)
-            {
-                lboxIndice.Items.RemoveAt(NumeroLineaSiguiente);
-            }
-
-            // Registrar en la base de datos
-            RegistrarProduccionAccess(NuevoNombreImagen, LineaOriginal2, mesInscripcion);
-
-            // Lista de TextBox a resetear colores
-            TextBox[] campos = {
-        txtAño_Inscripcion, txtMes_Inscripcion, txtDia_inscripcion, txtAnio_Acta,
-        txtNumero_Acta, txtTomo_Acta, txtCircunscripcion_Acta, txtNombre_Nacido,
-        txtCNI_Numero, txtSexo_Nacido, txtDia_Nacimiento, txtMes_Nacimiento,
-        txtAño_Nacimiento, txtNombre_Padre, txtNombre_Madre
-    };
-
-            // Restaurar color de los campos
-            foreach (TextBox campo in campos)
-            {
-                campo.BackColor = Color.White;
-            }
-
-            // Pasar al siguiente índice
-            PasarAlSiguiente(NumeroLineaActual, NumeroLineaSiguiente, NuevoNombreImagen);
+            // Edición CUD:
+            // Cuando tengas el método real en ObtenerDatos, cargamos desde BD acá.
+            // Ejemplo futuro:
+            // CargarDatosCudEditado(txtNombreImagen.Text + ".pdf");
         }
 
-
-
-        private void btnSepararIlegible_Click(object sender, EventArgs e)
+        private void PasarAlSiguiente(int numeroLineaActual, int numeroLineaSiguiente, string nuevoNombre)
         {
-            // Verificar si hay un elemento seleccionado en lboxIndice
-            if (lboxIndice.SelectedIndex == -1)
-            {
-                MessageBox.Show("Debe seleccionar un índice antes de marcar como ILEGIBLE.");
-                return;
-            }
-
-            int NumeroLineaActual = lboxIndice.SelectedIndex;
-            int NumeroLineaSiguiente = NumeroLineaActual + 1;
-
-            string LineaOriginal = txtNombreImagen.Text + ";";
-            string NuevoNombreImagen = "ILEGIBLE";
-
-            // Modificar la lista de índices
-            lboxIndice.Items.Insert(NumeroLineaActual, LineaOriginal + NuevoNombreImagen);
-
-            if (NumeroLineaSiguiente < lboxIndice.Items.Count)
-            {
-                lboxIndice.Items.RemoveAt(NumeroLineaSiguiente);
-            }
+            pictureBox1.Image = null;
+            LimpiarTextBox();
+            inicio = 0;
 
             string rutaProcesada = txtRutaLote.Text;
-            string rutaBD = Path.Combine(rutaProcesada, txtNombreImagen.Text + ".pdf");
-            string destinoIlegible = Path.Combine(@"J:\BDs\RC\ILEGIBLE\ACTAS\", txtNombreImagen.Text + ".pdf");
 
-            try
+            if (numeroLineaActual + 1 >= lboxIndice.Items.Count)
             {
-                // Copiar archivo si no existe en destino
-                if (!File.Exists(destinoIlegible))
-                {
-                    File.Copy(rutaBD, destinoIlegible);
-                }
+                VaciarFormulario();
+                DesHabilarBotones();
+                pictureBox1.Image = null;
 
-                // Intentar eliminar el archivo con reintentos si está en uso
-                int intentos = 0, maxIntentos = 3;
-                TimeSpan espera = TimeSpan.FromSeconds(1);
+                MessageBox.Show("El lote está terminado.", "Indexador CUD",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                while (intentos < maxIntentos)
-                {
-                    try
-                    {
-                        if (File.Exists(rutaBD))
-                        {
-                            File.SetAttributes(rutaBD, FileAttributes.Normal);
-                            File.Delete(rutaBD);
-                        }
-                        break; // Salir del bucle si la eliminación fue exitosa
-                    }
-                    catch (IOException)
-                    {
-                        System.Threading.Thread.Sleep(espera);
-                        intentos++;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al procesar el archivo: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                IntentarEliminarCarpetaVacia(rutaProcesada);
+                return;
             }
 
-            // Pasar al siguiente índice
-            PasarAlSiguiente(NumeroLineaActual, NumeroLineaSiguiente, txtNombreImagen.Text);
+            if (numeroLineaSiguiente < lboxIndice.Items.Count)
+            {
+                lboxIndice.SetSelected(numeroLineaSiguiente, true);
+                CargarIndiceFijoEImagen();
+            }
         }
-
-
 
         private void VaciarFormulario()
         {
             txtRutaLote.Clear();
-
             txtNombreImagen.Clear();
-
 
             LimpiarTextBox();
             lboxIndice.Items.Clear();
@@ -457,222 +724,692 @@ namespace Indexador_GCBA_
             btnSeleccionarLote.Enabled = true;
             btnSeleccionarLote.Select();
             btnSeleccionarLote.Focus();
-
-        }
-        private void PasarAlSiguiente(int pNumeroLineaActual, int pNumeroLineaSiguiente, string pnuevonombre)
-        {
-            // Resetear interfaz
-            pictureBox1.Image = null;
-           // pictureBox1.Visible = false;
-            LimpiarTextBox();
-            inicio = 0;
-            txtCircunscripcion_Acta.Focus();
-
-            ObtenerDatos oconsulta = new ObtenerDatos();
-            string rutaprocesada = txtRutaLote.Text;
-            string rutabd = Path.Combine(rutaprocesada, txtNombreImagen.Text + ".pdf");
-
-            // Extraer nombre del lote
-            string NombreLote = Path.GetFileName(rutaprocesada);
-
-            // Si el lote ha terminado
-            if (pNumeroLineaActual + 1 >= lboxIndice.Items.Count)
-            {
-                VaciarFormulario();
-                DesHabilarBotones();
-                pictureBox1.Image = null;
-                MessageBox.Show("El lote está terminado!!!", "Mensaje", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                // Intentar eliminar la carpeta del lote si está vacía
-                try
-                {
-                    DirectoryInfo di = new DirectoryInfo(rutaprocesada);
-                    if (di.Exists && di.GetFiles().Length == 0)
-                    {
-                        di.Delete(); // Borra la carpeta del lote si está vacía
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error al eliminar la carpeta del lote: " + ex.Message);
-                }
-
-                // Intentar eliminar la carpeta contenedora (apellido) si está vacía
-                try
-                {
-                    string[] carpetas = rutaprocesada.Split('\\');
-                    if (carpetas.Length > 4)
-                    {
-                        string carpetaContenedora = Path.Combine(rutaactasprecesadas, carpetas[4]);
-                        DirectoryInfo dicont = new DirectoryInfo(carpetaContenedora);
-
-                        if (dicont.Exists && dicont.GetDirectories().Length == 0)
-                        {
-                            dicont.Delete(); // Borra la carpeta contenedora si está vacía
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error al eliminar la carpeta contenedora: " + ex.Message);
-                }
-            }
-            else
-            {
-                // Pasar al siguiente índice en lboxIndice
-                if (pNumeroLineaSiguiente < lboxIndice.Items.Count)
-                {
-                    lboxIndice.SetSelected(pNumeroLineaSiguiente, true);
-                    CargarIndiceFijoEImagen();
-                }
-            }
         }
 
+        // ==========================================================
+        // VALIDACIONES DE ESCRITURA
+        // ==========================================================
 
-        private void lboxIndice_MouseClick(object sender, MouseEventArgs e)
+        private void KeyPressSoloNumerosCud(object sender, KeyPressEventArgs e)
         {
-            // Si no hay un elemento seleccionado, salir del método
-            if (lboxIndice.SelectedIndex == -1)
+            if (!IndexadorCudService.CaracterPermitidoNumerico(e.KeyChar))
+                e.Handled = true;
+        }
+
+        private void KeyPressNumeroCertificadoCud(object sender, KeyPressEventArgs e)
+        {
+            if (!IndexadorCudService.CaracterPermitidoNumeroCertificado(e.KeyChar))
+                e.Handled = true;
+        }
+
+        private void KeyPressFechaCud(object sender, KeyPressEventArgs e)
+        {
+            if (!IndexadorCudService.CaracterPermitidoFecha(e.KeyChar))
+                e.Handled = true;
+        }
+
+        private void KeyPressCodigoCifCud(object sender, KeyPressEventArgs e)
+        {
+            if (!IndexadorCudService.CaracterPermitidoCif(e.KeyChar))
+                e.Handled = true;
+        }
+
+        private void TxtNumeCert_TextChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud || _normalizandoCud || _sincronizandoCamposCud)
                 return;
 
-            LimpiarTextBox();
-            CargarIndiceFijoEImagen();
-            
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
 
-            if (editar == 1)
+            if (datos.EsValido)
             {
-                ObtenerDatos odatos = new ObtenerDatos();
-                DataTable dataTable = odatos.editaracta(txtNombreImagen.Text + ".pdf");
-
-                if (dataTable.Rows.Count > 0)
-                {
-                    // Mapeo de columnas del DataTable a los TextBox correspondientes
-                    Dictionary<TextBox, int> mapeoCampos = new Dictionary<TextBox, int>
-            {
-                { txtCircunscripcion_Acta, 2 }, { txtTomo_Acta, 3 }, { txtNumero_Acta, 4 }, { txtAnio_Acta, 5 },
-                { txtDia_inscripcion, 6 }, { txtMes_Inscripcion, 7 }, { txtAño_Inscripcion, 8 }, { txtNombre_Nacido, 9 },
-                { txtCNI_Numero, 10 }, { txtSexo_Nacido, 11 }, { txtDia_Nacimiento, 12 }, { txtMes_Nacimiento, 13 },
-                { txtAño_Nacimiento, 14 }, { txtNombre_Padre, 15 }, { txtNombre_Madre, 16 }
-            };
-
-                    // Asignación de valores de manera más eficiente
-                    foreach (var campo in mapeoCampos)
-                    {
-                        campo.Key.Text = dataTable.Rows[0][campo.Value]?.ToString() ?? string.Empty;
-                    }
-                }
-            }
-        }
-
-
-
-        private void btnSalir_Click(object sender, EventArgs e)
-        {
-            //Datos.ObtenerDatos odatos = new Datos.ObtenerDatos();
-            //dataGridView1.DataSource = odatos.seleccionartodosql();
-            //this.Close();
-            //btnSeleccionarLote.Enabled = true;
-        }
-
-        private void CargarFicha(string pruta)
-        {
-            // pdfViewer1.Load()
-            //   webBrowser1.Navigate(pruta);
-            CargarPDFEnPictureBox(pruta);
-            HabilitarBotones();
-
-        }
-
-
-
-
-
-
-        private void CargarIndiceFijoEImagen()
-        {
-            editar = 0;
-            CargarDatosFijosIndice();
-
-            string nombreactaeditar = txtNombreImagen.Text;
-
-            if (nombreactaeditar.Contains(";"))
-            {
-                // Extraer la parte posterior al punto y coma
-                txtNombreImagen.Text = nombreactaeditar.Substring(nombreactaeditar.IndexOf(';') + 1);
-                RutaNombreImagen = Path.Combine(rutaverificada, txtNombreImagen.Text + ".pdf");
-                editar = 1;
+                MarcarCampo(TxtNumeCert, ResultadoValidacion.Ok("Número de certificado válido. Al salir del campo se sincronizarán DNI, emisión y vencimiento."));
             }
             else
             {
-                RutaNombreImagen = Path.Combine(txtRutaLote.Text, txtNombreImagen.Text + ".pdf");
+                _erroresCud.SetError(TxtNumeCert, string.Empty);
+            }
+        }
 
-                if (nombreactaeditar.Contains("-"))
+        private void CodigoCif_TextChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud || _normalizandoCud)
+                return;
+
+            TextBox txt = sender as TextBox;
+            if (txt == null)
+                return;
+
+            string original = txt.Text;
+            string limpio = FiltrarCaracteresCif(original);
+
+            if (original == limpio)
+                return;
+
+            int pos = txt.SelectionStart;
+
+            _normalizandoCud = true;
+            txt.Text = limpio;
+            txt.SelectionStart = Math.Min(pos, txt.Text.Length);
+            _normalizandoCud = false;
+        }
+
+        private string FiltrarCaracteresCif(string texto)
+        {
+            if (string.IsNullOrEmpty(texto))
+                return string.Empty;
+
+            List<char> chars = new List<char>();
+
+            foreach (char c in texto)
+            {
+                if (IndexadorCudService.CaracterPermitidoCif(c) ||
+                    c == ',' || c == ';' || c == '|' ||
+                    c == '\r' || c == '\n' || c == '\t')
                 {
-                    int guion = nombreactaeditar.IndexOf('-');
-
-                    if (guion != -1)
-                    {
-                        string numeroActa = nombreactaeditar.Substring(guion + 1);
-                        txtNumero_Acta.Text = numeroActa.StartsWith("0") ? numeroActa.Substring(1) : numeroActa;
-                    }
+                    chars.Add(c);
                 }
             }
-            inicio = 1;
-            CargarFicha(RutaNombreImagen);
+
+            return new string(chars.ToArray());
+        }
+
+        // ==========================================================
+        // VALIDACIONES AL SALIR
+        // ==========================================================
+
+        private void TxtNumeCert_LeaveCud(object sender, EventArgs e)
+        {
+            _normalizandoCud = true;
+            TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(TxtNumeCert.Text);
+            _normalizandoCud = false;
+
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+
+            if (!datos.EsValido)
+            {
+                MarcarCampo(TxtNumeCert, ResultadoValidacion.Error(datos.Mensaje));
+                return;
+            }
+
+            // El certificado es el dato maestro:
+            // actualiza SIEMPRE DNI, Fecha de emisión y Fecha de vencimiento.
+            AplicarTriangulacionCertificadoForzada(datos);
+
+            MarcarCampo(TxtNumeCert, ResultadoValidacion.Ok("Número de certificado válido. Datos dependientes sincronizados."));
+            ValidarFechasCruzadasEnPantalla();
+        }
+
+        private void AplicarTriangulacionCertificadoForzada(DatosNumeroCertificadoCud datos)
+        {
+            if (datos == null || !datos.EsValido)
+                return;
+
+            _sincronizandoCamposCud = true;
+
+            TxtNumDNI.Text = datos.Dni;
+            TxtFechaEmision.Text = datos.FechaEmision;
+            TxtFechaVencimiento.Text = datos.FechaVencimiento;
+
+            _ultimoDniAuto = datos.Dni;
+            _ultimaEmisionAuto = datos.FechaEmision;
+            _ultimoVencimientoAuto = datos.FechaVencimiento;
+
+            // Como el DNI cambió por certificado, también actualizamos el CUIL si ya tenía prefijo o valor.
+            ActualizarCuilDesdeDni(datos.Dni);
+
+            _sincronizandoCamposCud = false;
+
+            MarcarCampoAuto(TxtNumDNI, "DNI sincronizado desde número de certificado.");
+            MarcarCampoAuto(TxtFechaEmision, "Fecha de emisión sincronizada desde número de certificado.");
+            MarcarCampoAuto(TxtFechaVencimiento, "Fecha de vencimiento sincronizada desde número de certificado.");
+
+            if (!string.IsNullOrWhiteSpace(TxtNumCuil.Text))
+            {
+                MarcarCampo(
+                    TxtNumCuil,
+                    IndexadorCudService.ValidarCuil(TxtNumCuil.Text, TxtNumDNI.Text, true));
+            }
+        }
+        private void TxtNumDNI_TextChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud || _normalizandoCud || _sincronizandoCamposCud)
+                return;
+
+            string dni = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+
+            // Si el DNI todavía no tiene longitud razonable, no tocamos nada.
+            if (dni.Length < 7 || dni.Length > 8)
+                return;
+
+            _sincronizandoCamposCud = true;
+
+            // DNI controla CUIL.
+            ActualizarCuilDesdeDni(dni);
+
+            _sincronizandoCamposCud = false;
         }
 
 
 
-
-        private void CargarDatosFijosIndice()
+        private void TxtApellidoNombre_LeaveCud(object sender, EventArgs e)
         {
+            TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(TxtApellidoNombre.Text);
+            MarcarCampo(TxtApellidoNombre,
+                IndexadorCudService.ValidarObligatorio(TxtApellidoNombre.Text, "Apellido y nombre"));
+        }
 
-            txtNombreImagen.Text = lboxIndice.SelectedItem.ToString();
+        private void TxtNumDNI_LeaveCud(object sender, EventArgs e)
+        {
+            TxtNumDNI.Text = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
 
+            ResultadoValidacion resultadoDni = IndexadorCudService.ValidarDni(TxtNumDNI.Text, true);
+            MarcarCampo(TxtNumDNI, resultadoDni);
+
+            if (!resultadoDni.EsValido)
+                return;
+
+            _sincronizandoCamposCud = true;
+
+            // DNI controla CUIL.
+            ActualizarCuilDesdeDni(TxtNumDNI.Text);
+
+            // DNI puede actualizar el segmento DNI del número de certificado.
+            ActualizarNumeroCertificadoDesdeDni(TxtNumDNI.Text);
+
+            _sincronizandoCamposCud = false;
+
+            if (!string.IsNullOrWhiteSpace(TxtNumCuil.Text))
+            {
+                MarcarCampo(
+                    TxtNumCuil,
+                    IndexadorCudService.ValidarCuil(TxtNumCuil.Text, TxtNumDNI.Text, true));
+            }
+        }
+
+        private void ActualizarCuilDesdeDni(string dni)
+        {
+            dni = IndexadorCudService.NormalizarDni(dni);
+
+            if (dni.Length < 7 || dni.Length > 8)
+                return;
+
+            string cuilActual = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
+
+            // Si no hay CUIL ni prefijo, no inventamos 20/27.
+            // El indexador debe cargar al menos los dos primeros dígitos.
+            if (string.IsNullOrWhiteSpace(cuilActual))
+                return;
+
+            if (cuilActual.Length < 2)
+                return;
+
+            string prefijo = cuilActual.Substring(0, 2);
+            string dni8 = dni.PadLeft(8, '0');
+
+            string digitoFinal = string.Empty;
+
+            // Si ya había CUIL completo, conservamos el último dígito.
+            if (cuilActual.Length >= 11)
+                digitoFinal = cuilActual.Substring(10, 1);
+
+            string nuevoCuil = prefijo + dni8 + digitoFinal;
+
+            TxtNumCuil.Text = nuevoCuil;
+            TxtNumCuil.SelectionStart = TxtNumCuil.Text.Length;
+            TxtNumCuil.SelectionLength = 0;
+
+            MarcarCampoAuto(
+                TxtNumCuil,
+                digitoFinal == string.Empty
+                    ? "CUIL sincronizado con el DNI. Ingrese el último dígito verificador."
+                    : "CUIL sincronizado con el DNI. Se conservó el último dígito.");
         }
 
 
 
-        private void LimpiarTextBox()
+        private void TxtNumCuil_LeaveCud(object sender, EventArgs e)
         {
-            pictureBox1.Image = null;
-           // pictureBox1.Visible = false;
-            txtMes_Inscripcion.Clear();
-            txtCircunscripcion_Acta.Clear();
-            txtNumero_Acta.Clear();
-            txtAño_Inscripcion.Clear();
-            txtAnio_Acta.Clear();
-            txtTomo_Acta.Clear();
-            txtDia_inscripcion.Clear();
-            txtNombre_Nacido.Clear();
-            txtSexo_Nacido.Clear();
-            txtDia_Nacimiento.Clear();
-            txtMes_Nacimiento.Clear();
-            txtAño_Nacimiento.Clear();
-            txtNombre_Padre.Clear();
-            txtNombre_Madre.Clear();
-            //  txtCircunscripcion_Acta.Focus();
+            TxtNumCuil.Text = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
+
+            MarcarCampo(TxtNumCuil,
+                IndexadorCudService.ValidarCuil(TxtNumCuil.Text, TxtNumDNI.Text, true));
         }
 
-
-
-
-      
-
-        private void RegistrarProduccionAccess(string pnuevonombre, string nombreantesdeeditar, int mesinscripcion)
+        private void Fecha_LeaveCud(object sender, EventArgs e)
         {
-            Datos.ProduccionAccess oProduccionAccess = new Datos.ProduccionAccess();
+            TextBox txt = sender as TextBox;
+            if (txt == null)
+                return;
+
+            txt.Text = IndexadorCudService.NormalizarFecha(txt.Text);
+
+            if (txt == TxtFechaNac)
+            {
+                MarcarCampo(txt,
+                    IndexadorCudService.ValidarFecha(
+                        txt.Text,
+                        "Fecha de nacimiento",
+                        true,
+                        false,
+                        new DateTime(1900, 1, 1),
+                        DateTime.Today));
+            }
+            else if (txt == TxtFechaEmision)
+            {
+                MarcarCampo(txt,
+                    IndexadorCudService.ValidarFecha(
+                        txt.Text,
+                        "Fecha de emisión",
+                        true,
+                        false,
+                        new DateTime(1900, 1, 1),
+                        DateTime.Today.AddDays(1)));
+            }
+            else if (txt == TxtFechaVencimiento)
+            {
+                MarcarCampo(txt,
+                    IndexadorCudService.ValidarFecha(
+                        txt.Text,
+                        "Fecha de vencimiento",
+                        true,
+                        true,
+                        new DateTime(1900, 1, 1),
+                        null));
+            }
+
+            ValidarFechasCruzadasEnPantalla();
+        }
+
+        private void TextoLibre_LeaveCud(object sender, EventArgs e)
+        {
+            TextBox txt = sender as TextBox;
+            if (txt == null)
+                return;
+
+            txt.Text = IndexadorCudService.NormalizarTextoLibre(txt.Text);
+
+            string nombreCampo = txt == TxtDiagnostico ? "Diagnóstico" : "Campo";
+            MarcarCampo(txt, IndexadorCudService.ValidarObligatorio(txt.Text, nombreCampo));
+        }
+
+        private void TxtOrientacion_LeaveCud(object sender, EventArgs e)
+        {
+            TxtOrientacion.Text = IndexadorCudService.NormalizarOrientacion(TxtOrientacion.Text);
+
+            MarcarCampo(TxtOrientacion,
+                IndexadorCudService.ValidarObligatorio(TxtOrientacion.Text, "Orientación prestacional"));
+        }
+
+        private void CodigoCif_LeaveCud(object sender, EventArgs e)
+        {
+            TextBox txt = sender as TextBox;
+            if (txt == null)
+                return;
+
+            txt.Text = IndexadorCudService.NormalizarCodigosCif(txt.Text);
+            MarcarCampo(txt, ValidarCodigoCifPorCampo(txt));
+        }
+
+        private void Combo_ChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud)
+                return;
+
+            ComboBox cmb = sender as ComboBox;
+            if (cmb == null)
+                return;
+
+            string nombreCampo = cmb == CmbSexo ? "Sexo" : "Acompañante";
+            MarcarCampo(cmb, IndexadorCudService.ValidarObligatorio(cmb.Text, nombreCampo));
+        }
+
+        // ==========================================================
+        // TRIANGULACIÓN DESDE NÚMERO DE CERTIFICADO
+        // ==========================================================
+
+        private void AplicarTriangulacionCertificado(DatosNumeroCertificadoCud datos, bool mostrarAdvertencias)
+        {
+            if (datos == null || !datos.EsValido)
+                return;
+
+            AutocompletarDniDesdeCertificado(datos.Dni, mostrarAdvertencias);
+
+            AutocompletarFechaDesdeCertificado(
+                TxtFechaEmision,
+                datos.FechaEmision,
+                ref _ultimaEmisionAuto,
+                "emisión",
+                mostrarAdvertencias);
+
+            AutocompletarFechaDesdeCertificado(
+                TxtFechaVencimiento,
+                datos.FechaVencimiento,
+                ref _ultimoVencimientoAuto,
+                "vencimiento",
+                mostrarAdvertencias);
+        }
+
+        private void AutocompletarDniDesdeCertificado(string dniCertificado, bool mostrarAdvertencias)
+        {
+            string actual = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+
+            if (string.IsNullOrWhiteSpace(actual) || actual == _ultimoDniAuto)
+            {
+                TxtNumDNI.Text = dniCertificado;
+                _ultimoDniAuto = dniCertificado;
+                MarcarCampoAuto(TxtNumDNI, "Autocompletado desde número de certificado.");
+                return;
+            }
+
+            if (actual != dniCertificado && mostrarAdvertencias)
+            {
+                MarcarCampo(TxtNumDNI,
+                    ResultadoValidacion.Advertencia("El DNI no coincide con el DNI incluido en el número de certificado."));
+            }
+        }
+
+        private void AutocompletarFechaDesdeCertificado(
+            TextBox txt,
+            string fechaCertificado,
+            ref string ultimoAuto,
+            string nombre,
+            bool mostrarAdvertencias)
+        {
+            string actual = IndexadorCudService.NormalizarFecha(txt.Text);
+
+            if (string.IsNullOrWhiteSpace(actual) || actual == ultimoAuto)
+            {
+                txt.Text = fechaCertificado;
+                ultimoAuto = fechaCertificado;
+                MarcarCampoAuto(txt, "Fecha de " + nombre + " autocompletada desde número de certificado.");
+                return;
+            }
+
+            if (actual != fechaCertificado && mostrarAdvertencias)
+            {
+                MarcarCampo(txt,
+                    ResultadoValidacion.Advertencia("La fecha de " + nombre + " no coincide con la incluida en el número de certificado."));
+            }
+        }
+
+        // ==========================================================
+        // VALIDACIÓN FINAL
+        // ==========================================================
+
+        private bool ValidarFormularioCudCompleto()
+        {
+            NormalizarFormularioCudCompleto();
+
+            Control primerError = null;
+            bool valido = true;
+
+            valido &= ValidarYMarcar(TxtNumeCert, ValidarNumeroCertificadoPantalla(), ref primerError);
+            valido &= ValidarYMarcar(TxtApellidoNombre, IndexadorCudService.ValidarObligatorio(TxtApellidoNombre.Text, "Apellido y nombre"), ref primerError);
+            valido &= ValidarYMarcar(CmbSexo, IndexadorCudService.ValidarObligatorio(CmbSexo.Text, "Sexo"), ref primerError);
+            valido &= ValidarYMarcar(TxtNumDNI, IndexadorCudService.ValidarDni(TxtNumDNI.Text, true), ref primerError);
+            valido &= ValidarYMarcar(TxtNumCuil, IndexadorCudService.ValidarCuil(TxtNumCuil.Text, TxtNumDNI.Text, true), ref primerError);
+
+            valido &= ValidarYMarcar(
+                TxtFechaNac,
+                IndexadorCudService.ValidarFecha(TxtFechaNac.Text, "Fecha de nacimiento", true, false, new DateTime(1900, 1, 1), DateTime.Today),
+                ref primerError);
+
+            valido &= ValidarYMarcar(TxtDiagnostico, IndexadorCudService.ValidarObligatorio(TxtDiagnostico.Text, "Diagnóstico"), ref primerError);
+            valido &= ValidarYMarcar(TxtFuncionesCorporales, ValidarCodigoCifPorCampo(TxtFuncionesCorporales), ref primerError);
+            valido &= ValidarYMarcar(TxtEstructurasCorporales, ValidarCodigoCifPorCampo(TxtEstructurasCorporales), ref primerError);
+            valido &= ValidarYMarcar(TxtActividad_Particip, ValidarCodigoCifPorCampo(TxtActividad_Particip), ref primerError);
+            valido &= ValidarYMarcar(TxtFactoresAmbientales, ValidarCodigoCifPorCampo(TxtFactoresAmbientales), ref primerError);
+            valido &= ValidarYMarcar(TxtOrientacion, IndexadorCudService.ValidarObligatorio(TxtOrientacion.Text, "Orientación prestacional"), ref primerError);
+
+            valido &= ValidarYMarcar(
+                TxtFechaEmision,
+                IndexadorCudService.ValidarFecha(TxtFechaEmision.Text, "Fecha de emisión", true, false, new DateTime(1900, 1, 1), DateTime.Today.AddDays(1)),
+                ref primerError);
+
+            valido &= ValidarYMarcar(
+                TxtFechaVencimiento,
+                IndexadorCudService.ValidarFecha(TxtFechaVencimiento.Text, "Fecha de vencimiento", true, true, new DateTime(1900, 1, 1), null),
+                ref primerError);
+
+            valido &= ValidarYMarcar(CmbAcomapante, IndexadorCudService.ValidarObligatorio(CmbAcomapante.Text, "Acompañante"), ref primerError);
+
+            ResultadoValidacion fechas = IndexadorCudService.ValidarFechasCruzadas(
+                TxtFechaNac.Text,
+                TxtFechaEmision.Text,
+                TxtFechaVencimiento.Text);
+
+            if (!fechas.EsValido)
+            {
+                valido = false;
+                MarcarCampo(TxtFechaEmision, fechas);
+                MarcarCampo(TxtFechaVencimiento, fechas);
+
+                if (primerError == null)
+                    primerError = TxtFechaEmision;
+            }
+
+            if (!valido)
+            {
+                if (primerError != null)
+                    primerError.Focus();
+
+                MessageBox.Show("Hay campos obligatorios o inconsistentes. Revise los campos marcados.",
+                    "Validación CUD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private void NormalizarFormularioCudCompleto()
+        {
+            _normalizandoCud = true;
+
+            TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(TxtNumeCert.Text);
+            TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(TxtApellidoNombre.Text);
+            TxtNumDNI.Text = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+            TxtNumCuil.Text = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
+
+            TxtFechaNac.Text = IndexadorCudService.NormalizarFecha(TxtFechaNac.Text);
+            TxtFechaEmision.Text = IndexadorCudService.NormalizarFecha(TxtFechaEmision.Text);
+            TxtFechaVencimiento.Text = IndexadorCudService.NormalizarFecha(TxtFechaVencimiento.Text);
+
+            TxtDiagnostico.Text = IndexadorCudService.NormalizarTextoLibre(TxtDiagnostico.Text);
+            TxtFuncionesCorporales.Text = IndexadorCudService.NormalizarCodigosCif(TxtFuncionesCorporales.Text);
+            TxtEstructurasCorporales.Text = IndexadorCudService.NormalizarCodigosCif(TxtEstructurasCorporales.Text);
+            TxtActividad_Particip.Text = IndexadorCudService.NormalizarCodigosCif(TxtActividad_Particip.Text);
+            TxtFactoresAmbientales.Text = IndexadorCudService.NormalizarCodigosCif(TxtFactoresAmbientales.Text);
+            TxtOrientacion.Text = IndexadorCudService.NormalizarOrientacion(TxtOrientacion.Text);
+
+            CmbSexo.Text = IndexadorCudService.NormalizarSexo(CmbSexo.Text);
+            CmbAcomapante.Text = IndexadorCudService.NormalizarSiNo(CmbAcomapante.Text);
+
+            _normalizandoCud = false;
+        }
+
+        private ResultadoValidacion ValidarNumeroCertificadoPantalla()
+        {
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+            return datos.EsValido
+                ? ResultadoValidacion.Ok("Número de certificado válido.")
+                : ResultadoValidacion.Error(datos.Mensaje);
+        }
+
+        private ResultadoValidacion ValidarCodigoCifPorCampo(TextBox txt)
+        {
+            if (txt == TxtFuncionesCorporales)
+                return IndexadorCudService.ValidarCodigosCif(txt.Text, 'b', "Funciones corporales", true);
+
+            if (txt == TxtEstructurasCorporales)
+                return IndexadorCudService.ValidarCodigosCif(txt.Text, 's', "Estructuras corporales", true);
+
+            if (txt == TxtActividad_Particip)
+                return IndexadorCudService.ValidarCodigosCif(txt.Text, 'd', "Actividad y participación", true);
+
+            if (txt == TxtFactoresAmbientales)
+                return IndexadorCudService.ValidarCodigosCif(txt.Text, 'e', "Factores ambientales", true);
+
+            return ResultadoValidacion.Ok();
+        }
+
+        private void ValidarFechasCruzadasEnPantalla()
+        {
+            ResultadoValidacion r = IndexadorCudService.ValidarFechasCruzadas(
+                TxtFechaNac.Text,
+                TxtFechaEmision.Text,
+                TxtFechaVencimiento.Text);
+
+            if (!r.EsValido)
+            {
+                MarcarCampo(TxtFechaEmision, r);
+                MarcarCampo(TxtFechaVencimiento, r);
+            }
+        }
+
+        private bool ValidarYMarcar(Control control, ResultadoValidacion resultado, ref Control primerError)
+        {
+            MarcarCampo(control, resultado);
+
+            if (resultado.Severidad == SeveridadValidacion.Error)
+            {
+                if (primerError == null)
+                    primerError = control;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        private void MarcarCampo(Control control, ResultadoValidacion resultado)
+        {
+            if (control == null || resultado == null)
+                return;
+
+            if (resultado.Severidad == SeveridadValidacion.Error)
+            {
+                control.BackColor = _colorError;
+                _erroresCud.SetError(control, resultado.Mensaje);
+                _toolTipCud.SetToolTip(control, resultado.Mensaje);
+            }
+            else if (resultado.Severidad == SeveridadValidacion.Advertencia)
+            {
+                control.BackColor = _colorAdvertencia;
+                _erroresCud.SetError(control, resultado.Mensaje);
+                _toolTipCud.SetToolTip(control, resultado.Mensaje);
+            }
+            else
+            {
+                control.BackColor = _colorOk;
+                _erroresCud.SetError(control, string.Empty);
+                _toolTipCud.SetToolTip(control, string.Empty);
+            }
+        }
+
+        private void MarcarCampoAuto(Control control, string mensaje)
+        {
+            if (control == null)
+                return;
+
+            control.BackColor = _colorAuto;
+            _erroresCud.SetError(control, string.Empty);
+            _toolTipCud.SetToolTip(control, mensaje);
+        }
+
+        private void RestaurarColoresFormularioCud()
+        {
+            foreach (Control c in ObtenerControlesCargaCud())
+            {
+                c.BackColor = _colorOk;
+                _erroresCud.SetError(c, string.Empty);
+                _toolTipCud.SetToolTip(c, string.Empty);
+            }
+        }
+
+        // ==========================================================
+        // DTO / GRABACIÓN
+        // ==========================================================
+
+        private CertificadoCudDto ObtenerDtoCudDesdePantalla()
+        {
+            return new CertificadoCudDto
+            {
+                NumeroCertificado = TxtNumeCert.Text.Trim(),
+                ApellidoNombre = TxtApellidoNombre.Text.Trim(),
+                Sexo = CmbSexo.Text.Trim(),
+                DNI = TxtNumDNI.Text.Trim(),
+                CUIL = TxtNumCuil.Text.Trim(),
+                FechaNacimiento = TxtFechaNac.Text.Trim(),
+                Diagnostico = TxtDiagnostico.Text.Trim(),
+                FuncionesCorporales = TxtFuncionesCorporales.Text.Trim(),
+                EstructurasCorporales = TxtEstructurasCorporales.Text.Trim(),
+                ActividadParticipacion = TxtActividad_Particip.Text.Trim(),
+                FactoresAmbientales = TxtFactoresAmbientales.Text.Trim(),
+                OrientacionPrestacional = TxtOrientacion.Text.Trim(),
+                FechaEmision = TxtFechaEmision.Text.Trim(),
+                FechaVencimiento = TxtFechaVencimiento.Text.Trim(),
+                Acompaniante = CmbAcomapante.Text.Trim()
+            };
+        }
+
+        private void GrabarCud(CertificadoCudDto dto)
+        {
+            if (lboxIndice.SelectedIndex == -1)
+            {
+                MessageBox.Show("Debe seleccionar un certificado antes de grabar.",
+                    "Indexador CUD", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int numeroLineaActual = lboxIndice.SelectedIndex;
+            int numeroLineaSiguiente = numeroLineaActual + 1;
+
+            string lineaOriginal = txtNombreImagen.Text + ";";
+            string nombreAntesDeEditar = txtNombreImagen.Text;
+            string nuevoNombreImagen = CrearNombreArchivoCud(dto);
+
+            lboxIndice.Items.Insert(numeroLineaActual, lineaOriginal + nuevoNombreImagen);
+
+            if (numeroLineaSiguiente < lboxIndice.Items.Count)
+                lboxIndice.Items.RemoveAt(numeroLineaSiguiente);
+
+            RegistrarProduccionAccessCud(dto, nuevoNombreImagen, nombreAntesDeEditar);
+
+            RestaurarColoresFormularioCud();
+            PasarAlSiguiente(numeroLineaActual, numeroLineaSiguiente, nuevoNombreImagen);
+        }
+
+        private string CrearNombreArchivoCud(CertificadoCudDto dto)
+        {
+            string dni = IndexadorCudService.SanitizarNombreArchivo(dto.DNI);
+            string cert = IndexadorCudService.SanitizarNombreArchivo(dto.NumeroCertificado);
+            string nombre = IndexadorCudService.SanitizarNombreArchivo(dto.ApellidoNombre);
+
+            string archivo = dni + "-" + cert + "-" + nombre;
+
+            if (archivo.Length > 180)
+                archivo = archivo.Substring(0, 180).Trim();
+
+            return archivo;
+        }
+
+        private void RegistrarProduccionAccessCud(CertificadoCudDto dto, string nuevoNombreImagen, string nombreAntesDeEditar)
+        {
             int copiaExitosa = 0;
             int grabacionExitosa = 0;
 
             string rutaLote = txtRutaLote.Text;
             string nombreLote = Path.GetFileName(rutaLote);
             string rutaOrigen = Path.Combine(rutaLote, txtNombreImagen.Text + ".pdf");
-            string rutaDestino = Path.Combine(rutaverificada, $"{txtAnio_Acta.Text}-{txtCircunscripcion_Acta.Text}-{txtTomo_Acta.Text}-{txtNumero_Acta.Text}.pdf");
+            string rutaDestino = Path.Combine(rutaCudVerificada, nuevoNombreImagen + ".pdf");
+            string indexador = txtUsuario.Text.Replace("Usuario: ", "");
 
             try
             {
-                // Copiar archivo si no existe en destino
+                Directory.CreateDirectory(rutaCudVerificada);
+
                 if (File.Exists(rutaOrigen))
                 {
                     if (!File.Exists(rutaDestino))
@@ -688,381 +1425,492 @@ namespace Indexador_GCBA_
                     }
                 }
 
-                // Parámetros de la base de datos
-                int diaInscripcion = Convert.ToInt32(txtDia_inscripcion.Text);
-                int anioActa = Convert.ToInt32(txtAnio_Acta.Text);
-                int numeroActa = Convert.ToInt32(txtNumero_Acta.Text);
-                int anioInscripcion = Convert.ToInt32(txtAño_Inscripcion.Text);
-               
-                int diaNacimiento = Convert.ToInt32(txtDia_Nacimiento.Text);
-                int anioNacimiento = Convert.ToInt32(txtAño_Nacimiento.Text);
-                string rutaImagen = rutaOrigen;
-                string pindexador = txtUsuario.Text.Replace("Usuario: ", "");
-
-                // Eliminar apóstrofes en nombres para evitar errores en la base de datos
-                string nombreMadre = txtNombre_Madre.Text.Replace("'", "");
-                string nombrePadre = txtNombre_Padre.Text.Replace("'", "");
-                string nombreNacido = txtNombre_Nacido.Text.Replace("'", "");
-
                 if (editar == 1)
                 {
-                    oProduccionAccess.EditarActasVerificadasRC(txtCircunscripcion_Acta.Text, txtTomo_Acta.Text, diaInscripcion,
-                        txtMes_Inscripcion.Text, anioActa, numeroActa, anioInscripcion, nombreNacido, txtCNI_Numero.Text,
-                        txtSexo_Nacido.Text, diaNacimiento, txtMes_Nacimiento.Text, anioNacimiento, nombrePadre, nombreMadre,
-                        nombreantesdeeditar + ".pdf");
+                    // ======================================================
+                    // ACÁ VA TU MÉTODO REAL DE EDICIÓN CUD.
+                    // No lo dejo inventado para no romper ProduccionAccess.
+                    //
+                    // Ejemplo futuro:
+                    // new ProduccionAccess().EditarCertificadoCudVerificado(
+                    //     dto.NumeroCertificado,
+                    //     dto.ApellidoNombre,
+                    //     dto.Sexo,
+                    //     dto.DNI,
+                    //     dto.CUIL,
+                    //     dto.FechaNacimiento,
+                    //     dto.Diagnostico,
+                    //     dto.FuncionesCorporales,
+                    //     dto.EstructurasCorporales,
+                    //     dto.ActividadParticipacion,
+                    //     dto.FactoresAmbientales,
+                    //     dto.OrientacionPrestacional,
+                    //     dto.FechaEmision,
+                    //     dto.FechaVencimiento,
+                    //     dto.Acompaniante,
+                    //     nombreAntesDeEditar + ".pdf");
+                    // ======================================================
+
+                    grabacionExitosa = 1;
                 }
                 else if (copiaExitosa == 1)
                 {
-                    oProduccionAccess.ActasNacimiento(
-     txtCircunscripcion_Acta.Text, txtTomo_Acta.Text, numeroActa, anioActa,
-     diaInscripcion, mesinscripcion, anioInscripcion, nombreNacido, txtCNI_Numero.Text, txtSexo_Nacido.Text,
-     diaNacimiento, txtMes_Nacimiento.Text, anioNacimiento, nombrePadre, nombreMadre, rutaImagen,
-     txtNombreImagen.Text + ".pdf", nombreLote, pindexador);
-
-
-                    oProduccionAccess.ActasVerificadasRC(txtCircunscripcion_Acta.Text, txtTomo_Acta.Text, diaInscripcion,
-                        txtMes_Inscripcion.Text, anioActa, numeroActa, anioInscripcion, nombreNacido, txtCNI_Numero.Text,
-                        txtSexo_Nacido.Text, diaNacimiento, txtMes_Nacimiento.Text, anioNacimiento, nombrePadre,
-                        nombreMadre, pnuevonombre + ".pdf");
+                    // ======================================================
+                    // ACÁ VA TU MÉTODO REAL DE INSERCIÓN CUD.
+                    //
+                    // Ejemplo futuro:
+                    // new ProduccionAccess().CertificadoCud(
+                    //     dto.NumeroCertificado,
+                    //     dto.ApellidoNombre,
+                    //     dto.Sexo,
+                    //     dto.DNI,
+                    //     dto.CUIL,
+                    //     dto.FechaNacimiento,
+                    //     dto.Diagnostico,
+                    //     dto.FuncionesCorporales,
+                    //     dto.EstructurasCorporales,
+                    //     dto.ActividadParticipacion,
+                    //     dto.FactoresAmbientales,
+                    //     dto.OrientacionPrestacional,
+                    //     dto.FechaEmision,
+                    //     dto.FechaVencimiento,
+                    //     dto.Acompaniante,
+                    //     rutaOrigen,
+                    //     txtNombreImagen.Text + ".pdf",
+                    //     nombreLote,
+                    //     indexador);
+                    //
+                    // new ProduccionAccess().CertificadoCudVerificado(
+                    //     dto.NumeroCertificado,
+                    //     dto.ApellidoNombre,
+                    //     dto.Sexo,
+                    //     dto.DNI,
+                    //     dto.CUIL,
+                    //     dto.FechaNacimiento,
+                    //     dto.Diagnostico,
+                    //     dto.FuncionesCorporales,
+                    //     dto.EstructurasCorporales,
+                    //     dto.ActividadParticipacion,
+                    //     dto.FactoresAmbientales,
+                    //     dto.OrientacionPrestacional,
+                    //     dto.FechaEmision,
+                    //     dto.FechaVencimiento,
+                    //     dto.Acompaniante,
+                    //     nuevoNombreImagen + ".pdf");
+                    // ======================================================
 
                     grabacionExitosa = 1;
                 }
 
-                // Si la grabación fue exitosa o es una edición, eliminar el archivo original
                 if (grabacionExitosa == 1 || editar == 1)
-                {
-                    if (File.Exists(rutaOrigen))
-                    {
-                        File.SetAttributes(rutaOrigen, FileAttributes.Normal);
-                        int intentos = 0, maxIntentos = 10;
-                        TimeSpan espera = TimeSpan.FromSeconds(1);
+                    EliminarArchivoOrigenConReintentos(rutaOrigen);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error en RegistrarProduccionAccessCud: " + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
 
-                        while (intentos < maxIntentos)
-                        {
-                            try
-                            {
-                                File.Delete(rutaOrigen);
-                                break; // Eliminación exitosa, salir del bucle
-                            }
-                            catch (IOException)
-                            {
-                                System.Threading.Thread.Sleep(espera);
-                                intentos++;
-                            }
-                        }
+        // ==========================================================
+        // OCR MANUAL FUTURO DESDE CUADRANTE
+        // ==========================================================
+
+        private void AplicarTextoCapturadoOcr(Control destino, string textoOcr)
+        {
+            if (destino == null)
+                return;
+
+            _cargandoDatosCud = true;
+
+            if (destino == TxtNumeCert)
+                TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(textoOcr);
+            else if (destino == TxtApellidoNombre)
+                TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(textoOcr);
+            else if (destino == TxtNumDNI)
+                TxtNumDNI.Text = IndexadorCudService.NormalizarDni(textoOcr);
+            else if (destino == TxtNumCuil)
+                TxtNumCuil.Text = IndexadorCudService.NormalizarCuil(textoOcr);
+            else if (destino == TxtFechaNac || destino == TxtFechaEmision || destino == TxtFechaVencimiento)
+                ((TextBox)destino).Text = IndexadorCudService.NormalizarFecha(textoOcr);
+            else if (destino == TxtFuncionesCorporales ||
+                     destino == TxtEstructurasCorporales ||
+                     destino == TxtActividad_Particip ||
+                     destino == TxtFactoresAmbientales)
+                ((TextBox)destino).Text = IndexadorCudService.NormalizarCodigosCif(textoOcr);
+            else if (destino == TxtDiagnostico)
+                TxtDiagnostico.Text = IndexadorCudService.NormalizarTextoLibre(textoOcr);
+            else if (destino == TxtOrientacion)
+                TxtOrientacion.Text = IndexadorCudService.NormalizarOrientacion(textoOcr);
+            else if (destino == CmbSexo)
+                CmbSexo.Text = IndexadorCudService.NormalizarSexo(textoOcr);
+            else if (destino == CmbAcomapante)
+                CmbAcomapante.Text = IndexadorCudService.NormalizarSiNo(textoOcr);
+
+            _cargandoDatosCud = false;
+
+            if (destino == TxtNumeCert)
+            {
+                DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+                if (datos.EsValido)
+                    AplicarTriangulacionCertificado(datos, true);
+            }
+        }
+
+        // ==========================================================
+        // LIMPIEZA
+        // ==========================================================
+
+        private void LimpiarTextBox()
+        {
+            pictureBox1.Image = null;
+
+            _cargandoDatosCud = true;
+
+            TxtNumeCert.Clear();
+            TxtApellidoNombre.Clear();
+            TxtNumDNI.Clear();
+            TxtNumCuil.Clear();
+            TxtFechaNac.Clear();
+            TxtDiagnostico.Clear();
+            TxtFuncionesCorporales.Clear();
+            TxtEstructurasCorporales.Clear();
+            TxtActividad_Particip.Clear();
+            TxtFactoresAmbientales.Clear();
+            TxtOrientacion.Clear();
+            TxtFechaEmision.Clear();
+            TxtFechaVencimiento.Clear();
+
+            if (CmbSexo.Items.Count > 0)
+                CmbSexo.SelectedIndex = 0;
+
+            if (CmbAcomapante.Items.Count > 0)
+                CmbAcomapante.SelectedIndex = 0;
+
+            _ultimoDniAuto = string.Empty;
+            _ultimaEmisionAuto = string.Empty;
+            _ultimoVencimientoAuto = string.Empty;
+
+            _cargandoDatosCud = false;
+
+            RestaurarColoresFormularioCud();
+        }
+
+        // ==========================================================
+        // NAVEGACIÓN POR TECLADO
+        // ==========================================================
+
+        private void ControlCarga_KeyDownCud(object sender, KeyEventArgs e)
+        {
+            Control controlActual = sender as Control;
+            if (controlActual == null)
+                return;
+
+            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Down)
+            {
+                e.SuppressKeyPress = true;
+
+                if (controlActual == btnGrabar)
+                {
+                    btnGrabar.PerformClick();
+                    return;
+                }
+
+                MoverFocoCud(controlActual, true);
+            }
+            else if (e.KeyCode == Keys.Up)
+            {
+                e.SuppressKeyPress = true;
+                MoverFocoCud(controlActual, false);
+            }
+        }
+
+        private void MoverFocoCud(Control actual, bool haciaAdelante)
+        {
+            List<Control> controles = ObtenerControlesCargaCud();
+
+            // Al final siempre va Grabar y Continuar.
+            controles.Add(btnGrabar);
+
+            int indiceActual = controles.IndexOf(actual);
+
+            if (indiceActual < 0)
+                return;
+
+            int nuevoIndice = haciaAdelante ? indiceActual + 1 : indiceActual - 1;
+
+            if (nuevoIndice < 0)
+                nuevoIndice = 0;
+
+            if (nuevoIndice >= controles.Count)
+                nuevoIndice = controles.Count - 1;
+
+            Control destino = controles[nuevoIndice];
+
+            if (destino != null && destino.CanFocus)
+            {
+                destino.Focus();
+
+                TextBox txt = destino as TextBox;
+                if (txt != null)
+                {
+                    txt.SelectionStart = txt.Text.Length;
+                    txt.SelectionLength = 0;
+                }
+
+                ComboBox cmb = destino as ComboBox;
+                if (cmb != null)
+                {
+                    cmb.SelectionStart = cmb.Text.Length;
+                    cmb.SelectionLength = 0;
+                }
+            }
+        }
+      
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Tab)
+            {
+                Control activo = ActiveControl;
+
+                if (activo != null && EsControlDeCargaCud(activo))
+                {
+                    MoverFocoCud(activo, true);
+                    return true;
+                }
+            }
+
+            if (keyData == (Keys.Shift | Keys.Tab))
+            {
+                Control activo = ActiveControl;
+
+                if (activo != null && EsControlDeCargaCud(activo))
+                {
+                    MoverFocoCud(activo, false);
+                    return true;
+                }
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+        private bool EsControlDeCargaCud(Control control)
+        {
+            if (control == null)
+                return false;
+
+            List<Control> controles = ObtenerControlesCargaCud();
+            controles.Add(btnGrabar);
+
+            return controles.Contains(control);
+        }
+
+        // ==========================================================
+        // PDF / PICTUREBOX
+        // ==========================================================
+
+        private void CargarPDFEnPictureBox(string filePath)
+        {
+            try
+            {
+                if (!File.Exists(filePath))
+                {
+                    MessageBox.Show("No se encontró el PDF: " + filePath,
+                        "Indexador CUD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (pictureBox1.Image != null)
+                {
+                    Image imgAnterior = pictureBox1.Image;
+                    pictureBox1.Image = null;
+                    imgAnterior.Dispose();
+                }
+
+                using (PdfDocument pdfDocument = PdfDocument.Load(filePath))
+                {
+                    if (pdfDocument.PageCount > 0)
+                    {
+                        Image pdfImage = pdfDocument.Render(
+                            0,
+                            pictureBox1.Width,
+                            pictureBox1.Height,
+                            96,
+                            96,
+                            true);
+
+                        pictureBox1.Image = pdfImage;
+                    }
+                    else
+                    {
+                        MessageBox.Show("El PDF no contiene páginas.",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error en RegistrarProduccionAccess: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Error al abrir el PDF: " + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-
-
-        // Método único para validar que solo se ingresen números
-        private void ValidarSoloNumeros(object sender, KeyPressEventArgs e)
+        private void PictureBox1_SizeChanged(object sender, EventArgs e)
         {
-            if (!char.IsControl(e.KeyChar) && !char.IsDigit(e.KeyChar))
-            {
-                e.Handled = true; // Bloquea la entrada de caracteres no numéricos
-            }
+            if (lastWidth > 0 && lastHeight > 0)
+                ResaltarCampo(lastX, lastY, lastWidth, lastHeight);
         }
-
-        // Asignar el mismo evento a varios TextBox en el Load del formulario
-
-
-
-
-        private int OriginalWidth = 911;  // Ancho original del PictureBox (ajustar según tu diseño)
-        private int OriginalHeight = 564; // Alto original del PictureBox (ajustar según tu diseño)
 
         private async void ResaltarCampo(int x, int y, int width, int height)
         {
             limpiarrectangulo();
             await Task.Delay(100);
 
-            // Guardar la última posición resaltada
             lastX = x;
             lastY = y;
             lastWidth = width;
             lastHeight = height;
 
-            // Calcular la escala actual del PictureBox
             float scaleX = (float)pictureBox1.Width / OriginalWidth;
             float scaleY = (float)pictureBox1.Height / OriginalHeight;
 
-            // Aplicar la escala a las coordenadas
             int scaledX = (int)(x * scaleX);
             int scaledY = (int)(y * scaleY);
             int scaledWidth = (int)(width * scaleX);
             int scaledHeight = (int)(height * scaleY);
 
-            using (Graphics Lienzo = pictureBox1.CreateGraphics())
+            using (Graphics lienzo = pictureBox1.CreateGraphics())
+            using (Brush brush = new SolidBrush(Color.FromArgb(60, 255, 255, 0)))
             {
-                using (Brush brush = new SolidBrush(Color.FromArgb(60, 255, 255, 0)))
-                {
-                    Lienzo.FillRectangle(brush, scaledX, scaledY + pixelgriss, scaledWidth, scaledHeight);
-                }
+                lienzo.FillRectangle(brush, scaledX, scaledY + pixelgriss, scaledWidth, scaledHeight);
             }
         }
-      
-        private int lastX, lastY, lastWidth, lastHeight; // Última posición resaltada
 
-        // Eventos Enter optimizados
-        private void txtCircunscripcion_Acta_Enter(object sender, EventArgs e) => ResaltarCampo(226, 38, 150, 60);
-        private void txtTomo_Acta_Enter(object sender, EventArgs e) => ResaltarCampo(383, 38, 150, 60);
-        private void txtNumero_Acta_Enter(object sender, EventArgs e) => ResaltarCampo(600, 38, 150, 60);
-        private void txtAnio_Acta_Enter(object sender, EventArgs e) => ResaltarCampo(720, 38, 150, 60);
-        private void txtDia_inscripcion_Enter(object sender, EventArgs e) => ResaltarCampo(580, 60, 150, 60);
-        private void txtMes_Inscripcion_Enter(object sender, EventArgs e) => ResaltarCampo(680, 60, 150, 60);
-        private void txtAño_Inscripcion_Enter(object sender, EventArgs e) => ResaltarCampo(220, 80, 150, 60);
-        private void txtNombre_Nacido_Enter(object sender, EventArgs e) => ResaltarCampo(210, 130, 600, 60);
-        private void txtSexo_Nacido_Enter(object sender, EventArgs e) => ResaltarCampo(220, 150, 200, 60);
-        private void txtDia_Nacimiento_Enter(object sender, EventArgs e) => ResaltarCampo(420, 150, 150, 60);
-        private void txtMes_Nacimiento_Enter(object sender, EventArgs e) => ResaltarCampo(540, 150, 160, 60);
-        private void txtAño_Nacimiento_Enter(object sender, EventArgs e) => ResaltarCampo(700, 150, 150, 60);
-        private void txtNombre_Padre_Enter(object sender, EventArgs e) => ResaltarCampo(220, 210, 600, 60);
-        private void txtNombre_Madre_Enter(object sender, EventArgs e) => ResaltarCampo(220, 250, 600, 60);
-
-      
-        // Método para limpiar el rectángulo sin afectar otros elementos
         private void limpiarrectangulo()
         {
             if (Lienzo != null)
-            {
-                pictureBox1.Refresh(); // Restablece la imagen sin necesidad de ocultar y mostrar
-               
+                pictureBox1.Refresh();
 
-            }
-            pictureBox1.Invalidate(); // Limpia el dibujo anterior
+            pictureBox1.Invalidate();
         }
 
-
-        // Diccionario para la conversión de meses
-        private readonly Dictionary<string, string> meses = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-{
-    { "E", "ENERO" }, { "F", "FEBRERO" }, { "MAR", "MARZO" }, { "AB", "ABRIL" },
-    { "MAY", "MAYO" }, { "JUN", "JUNIO" }, { "JUL", "JULIO" }, { "AG", "AGOSTO" },
-    { "S", "SEPTIEMBRE" }, { "O", "OCTUBRE" }, { "N", "NOVIEMBRE" }, { "D", "DICIEMBRE" }
-};
-
-        // Diccionario para la conversión de sexo
-        private readonly Dictionary<string, string> sexoDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-{
-    { "M", "MASCULINO" }, { "F", "FEMENINO" }
-};
-
-        // Método para autocompletar meses
-        private void AutoCompletarMes(TextBox textBox)
+        private void AjustarPictureBox()
         {
-            string input = textBox.Text.ToUpper();
-            if (string.IsNullOrWhiteSpace(input)) return;
+            if (OriginalWidth <= 0 || OriginalHeight <= 0)
+                return;
 
-            foreach (var mes in meses.Keys)
+            float scaleX = (float)ClientSize.Width / OriginalWidth;
+            float scaleY = (float)ClientSize.Height / OriginalHeight;
+
+            pictureBox1.Width = (int)(OriginalWidth * scaleX);
+            pictureBox1.Height = (int)(OriginalHeight * scaleY);
+        }
+
+        private void FormActasDeNacimiento_Resize(object sender, EventArgs e)
+        {
+            AjustarPictureBox();
+        }
+
+        // ==========================================================
+        // RECURSOS PDFIUM
+        // ==========================================================
+
+        private void ListEmbeddedResources()
+        {
+            string[] resources = Assembly.GetExecutingAssembly().GetManifestResourceNames();
+
+            Console.WriteLine("Recursos incrustados en el ensamblado:");
+            foreach (string resource in resources)
+                Console.WriteLine(resource);
+        }
+
+        private void ExtractPdfium()
+        {
+            string resourceName = "Indexador_GCBA_.pdfium.dll";
+            string outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pdfium.dll");
+
+            Console.WriteLine("Extrayendo pdfium.dll a: " + outputPath);
+
+            if (File.Exists(outputPath))
             {
-                if (input.StartsWith(mes))
+                Console.WriteLine("pdfium.dll ya existe en " + outputPath);
+                return;
+            }
+
+            using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
+            {
+                if (stream == null)
                 {
-                    textBox.Text = meses[mes];
+                    Console.WriteLine("No se encontró el recurso " + resourceName);
                     return;
                 }
-            }
-        }
 
-        // Método para autocompletar sexo
-        private void AutoCompletarSexo(TextBox textBox)
-        {
-            string input = textBox.Text.ToUpper();
-            if (sexoDict.ContainsKey(input))
-            {
-                textBox.Text = sexoDict[input];
-                textBox.SelectionStart = textBox.Text.Length;
-            }
-        }
-
-        // Método para manejar Tab automático en KeyDown
-        private void ManejarTabulacion(KeyEventArgs e, Control anterior, Control siguiente)
-        {
-            if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Down)
-            {
-                if (siguiente is Button boton)
+                using (FileStream fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
                 {
-                    boton.PerformClick(); // Ejecuta el evento Click del botón automáticamente
-                }
-                else if (siguiente != null)
-                {
-                    siguiente.Focus(); // Mueve el foco al siguiente control
+                    stream.CopyTo(fileStream);
                 }
             }
-            else if (e.KeyCode == Keys.Up && anterior != null)
+
+            Console.WriteLine("pdfium.dll extraída correctamente.");
+        }
+
+        // ==========================================================
+        // FILESYSTEM
+        // ==========================================================
+
+        private void EliminarArchivoOrigenConReintentos(string rutaOrigen)
+        {
+            if (!File.Exists(rutaOrigen))
+                return;
+
+            File.SetAttributes(rutaOrigen, FileAttributes.Normal);
+
+            int intentos = 0;
+            int maxIntentos = 10;
+
+            while (intentos < maxIntentos)
             {
-                anterior.Focus();
+                try
+                {
+                    File.Delete(rutaOrigen);
+                    return;
+                }
+                catch (IOException)
+                {
+                    System.Threading.Thread.Sleep(500);
+                    intentos++;
+                }
             }
         }
 
-
-        // Eventos de TextChanged optimizados
-        private void txtMes_Nacimiento_TextChanged(object sender, EventArgs e) => AutoCompletarMes(txtMes_Nacimiento);
-        private void txtMes_Inscripcion_TextChanged(object sender, EventArgs e) => AutoCompletarMes(txtMes_Inscripcion);
-        private void txtSexo_Nacido_TextChanged(object sender, EventArgs e) => AutoCompletarSexo(txtSexo_Nacido);
-
-        // Eventos de KeyDown optimizados
-        private void txtCircunscripcion_Acta_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, null, txtTomo_Acta);
-        private void txtTomo_Acta_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtCircunscripcion_Acta, txtNumero_Acta);
-        private void txtNumero_Acta_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtTomo_Acta, txtAnio_Acta);
-        private void txtAnio_Acta_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtNumero_Acta, txtDia_inscripcion);
-        private void txtDia_inscripcion_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtAnio_Acta, txtMes_Inscripcion);
-        private void txtMes_Inscripcion_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtDia_inscripcion, txtAño_Inscripcion);
-        private void txtAño_Inscripcion_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtMes_Inscripcion, txtNombre_Nacido);
-        private void txtNombre_Nacido_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtAño_Inscripcion, txtCNI_Numero);
-        private void txtCNI_Numero_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtNombre_Nacido, txtSexo_Nacido);
-        private void txtSexo_Nacido_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtCNI_Numero, txtDia_Nacimiento);
-        private void txtDia_Nacimiento_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtSexo_Nacido, txtMes_Nacimiento);
-        private void txtMes_Nacimiento_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtDia_Nacimiento, txtAño_Nacimiento);
-        private void txtAño_Nacimiento_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtMes_Nacimiento, txtNombre_Padre);
-        private void txtNombre_Padre_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtAño_Nacimiento, txtNombre_Madre);
-        private void txtNombre_Madre_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtNombre_Padre, btnGrabar);
-        private void btnGrabar_KeyDown(object sender, KeyEventArgs e) => ManejarTabulacion(e, txtNombre_Madre, null);
-
-
-        private void txtCircunscripcion_Acta_KeyPress(object sender, KeyPressEventArgs e)
-        {
-
-        }
-        private void txtNombre_Madre_TabStopChanged(object sender, EventArgs e)
-        {
-            btnGrabar.Focus();
-        }
-
-        private void txtCircunscripcion_Acta_MouseClick(object sender, MouseEventArgs e)
-        {
-
-        }
-        private void button1_Click(object sender, EventArgs e)
-        {
-            string pindexador = txtUsuario.Text;
-
-            if (lboxIndice.Items.Count == 0 && txtRutaLote.Text != "")
-            {
-                ProduccionAccess oinsertar = new ProduccionAccess();
-                oinsertar.CerrarLoteAsignado(txtRutaLote.Text, pindexador.Replace("Usuario: ", ""));
-                txtRutaLote.Text = "";
-                btnSeleccionarLote.Enabled = true;
-            }
-        }
-
-
-
-        private void CargarPDFEnPictureBox(string filePath)
+        private void IntentarEliminarCarpetaVacia(string ruta)
         {
             try
             {
-                using (var pdfDocument = PdfDocument.Load(filePath))
-                {
-                    if (pdfDocument.PageCount > 0)
-                    {
-                        Image pdfImage = pdfDocument.Render(0, pictureBox1.Width, pictureBox1.Height, 96, 96, true);
-                        pictureBox1.Image = pdfImage;
-                    }
-                    else
-                    {
-                        MessageBox.Show("El PDF no contiene páginas.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
+                if (string.IsNullOrWhiteSpace(ruta))
+                    return;
+
+                DirectoryInfo di = new DirectoryInfo(ruta);
+
+                if (di.Exists && di.GetFiles().Length == 0 && di.GetDirectories().Length == 0)
+                    di.Delete();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al abrir el PDF: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine("Error al eliminar carpeta vacía: " + ex.Message);
             }
         }
 
-        private void txtAnio_Acta_Leave(object sender, EventArgs e)
-        {
-            txtAño_Inscripcion.Text = txtAnio_Acta.Text;
-            txtAño_Nacimiento.Text = txtAnio_Acta.Text;
-        }
-
-        //static FileInfo ObtenerPrimerArchivo(DirectoryInfo directorio)
-        //{
-        //    string primerArchivo = Directory.EnumerateFiles(directorio.FullName).FirstOrDefault();
-        //    return primerArchivo != null ? new FileInfo(primerArchivo) : null;
-        //}
-
-
-
-        private void button2_Click(object sender, EventArgs e)
-        {
-            DialogResult result = MessageBox.Show("¿Desea pasar el Lote a Ilegible?", "Confirmación", MessageBoxButtons.OKCancel);
-
-            if (result != DialogResult.OK)
-                return;
-
-            string origen = txtRutaLote.Text;
-            string destinoBase = @"J:\BDs\RC\ILEGIBLE\ACTAS\";
-
-            if (!Directory.Exists(origen))
-            {
-                MessageBox.Show("La carpeta de origen no existe.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            try
-            {
-                string carpetaNombre = new DirectoryInfo(origen).Name;
-                string destinoCompleto = Path.Combine(destinoBase, carpetaNombre);
-
-                // Si es posible, mover el directorio en lugar de copiar y eliminar
-                if (!Directory.Exists(destinoCompleto))
-                {
-                    Directory.Move(origen, destinoCompleto);
-                }
-                else
-                {
-                    // Si la carpeta ya existe, copiar archivos sin sobrescribir
-                    CopyDirectory(origen, destinoCompleto);
-                    Directory.Delete(origen, true);
-                }
-
-                // Verificar si el lote está vacío y cerrar lote si es necesario
-                if (lboxIndice.Items.Count == 0 && !string.IsNullOrEmpty(txtRutaLote.Text))
-                {
-                    string pindexador = txtUsuario.Text;
-                    ProduccionAccess oinsertar = new ProduccionAccess();
-                    oinsertar.CerrarLoteAsignado(txtRutaLote.Text, pindexador.Replace("Usuario: ", ""));
-                    txtRutaLote.Text = "";
-                    btnSeleccionarLote.Enabled = true;
-                }
-
-                VaciarFormulario();
-                MessageBox.Show("El lote se ha movido correctamente.", "Éxito", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (IOException ex)
-            {
-                MessageBox.Show($"Error al mover el lote (archivo en uso): {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error inesperado: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-
-
-        static void CopyDirectory(string sourceDir, string destDir)
+        private static void CopyDirectory(string sourceDir, string destDir)
         {
             if (!Directory.Exists(destDir))
-            {
                 Directory.CreateDirectory(destDir);
-            }
 
             foreach (string file in Directory.EnumerateFiles(sourceDir))
             {
                 string destFile = Path.Combine(destDir, Path.GetFileName(file));
-                if (!File.Exists(destFile))  // Evitar sobrescribir archivos ya existentes
-                {
+
+                if (!File.Exists(destFile))
                     File.Copy(file, destFile);
-                }
             }
 
             foreach (string subDir in Directory.EnumerateDirectories(sourceDir))
@@ -1072,59 +1920,185 @@ namespace Indexador_GCBA_
             }
         }
 
+        // ==========================================================
+        // LOAD
+        // ==========================================================
 
         private void FormActasDeNacimiento_Load(object sender, EventArgs e)
         {
-            DataTable dt;
-            //ObtenerDatos odatos = new ObtenerDatos();
-            //dt = odatos.ConsultaActa1();
-            try
-            {
-                using (var oCon = ConexionAccess.ObtenerConexion2())
-                {
-                    oCon.Open();
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("No se pudo establecer conexión con la base de datos. Por favor, asegúrese de estar logueado en FortiClient para comenzar con la indexación.", "Error de Conexión", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            //try
+            //{
+            //    using (var oCon = ConexionAccess.ObtenerConexion2())
+            //    {
+            //        oCon.Open();
+            //    }
+            //}
+            //catch
+            //{
+            //    MessageBox.Show(
+            //        "No se pudo establecer conexión con la base de datos. Verifique FortiClient o la conexión de red antes de comenzar con la indexación.",
+            //        "Error de conexión",
+            //        MessageBoxButtons.OK,
+            //        MessageBoxIcon.Error);
+            //}
+
+            // Carga automática de PDF de prueba para empezar a trabajar OCR manual/cuadrante.
+            BeginInvoke(new Action(CargarPdfPruebaCopidis));
         }
 
-        private void txtNumero_Acta_Leave(object sender, EventArgs e)
+        private void CargarPdfPruebaCopidis()
         {
-            if (txtNumero_Acta.Text.Length < 4)
+            string rutaPdfPrueba = @"C:\Users\Administrador\Desktop\Prueba Copidis\2.pdf";
+
+            if (!File.Exists(rutaPdfPrueba))
             {
-                txtNumero_Acta.Text = txtNumero_Acta.Text.PadLeft(4, '0');
+                MessageBox.Show(
+                    "No se encontró el PDF de prueba:" + Environment.NewLine + rutaPdfPrueba,
+                    "PDF de prueba",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
 
+                return;
             }
+
+            RutaNombreImagen = rutaPdfPrueba;
+            txtNombreImagen.Text = Path.GetFileNameWithoutExtension(rutaPdfPrueba);
+            txtRutaLote.Text = Path.GetDirectoryName(rutaPdfPrueba);
+
+            CargarPDFEnPictureBox(rutaPdfPrueba);
+
+            HabilitarBotones();
+
+            TxtNumeCert.Focus();
         }
 
-        private void AjustarPictureBox()
+
+
+        // ==========================================================
+
+        // MÉTODOS VIEJOS DE ACTAS: STUBS PARA QUE NO ROMPA EL DESIGNER
+        // No tienen lógica vieja. Si el diseñador los sigue referenciando,
+        // no generan comportamiento incorrecto.
+        // ==========================================================
+
+        private void ValidarSoloNumeros(object sender, KeyPressEventArgs e)
         {
-            // Ajustar el PictureBox proporcionalmente al tamaño del formulario
-            float scaleX = (float)this.ClientSize.Width / OriginalWidth;
-            float scaleY = (float)this.ClientSize.Height / OriginalHeight;
-
-            pictureBox1.Width = (int)(OriginalWidth * scaleX);
-            pictureBox1.Height = (int)(OriginalHeight * scaleY);
+            KeyPressSoloNumerosCud(sender, e);
         }
+
+        private void TxtNumeCert_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            KeyPressNumeroCertificadoCud(sender, e);
+        }
+
+        private void TxtNumeCert_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtTomo_Acta_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtNumero_Acta_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtAnio_Acta_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtDia_inscripcion_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtMes_Inscripcion_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtAño_Inscripcion_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtNombre_Nacido_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtCNI_Numero_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtSexo_Nacido_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtDia_Nacimiento_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtMes_Nacimiento_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtAño_Nacimiento_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtNombre_Padre_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtNombre_Madre_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void btnGrabar_KeyDown(object sender, KeyEventArgs e)
+        {
+            ControlCarga_KeyDownCud(sender, e);
+        }
+
+        private void txtMes_Nacimiento_TextChanged(object sender, EventArgs e)
+        {
+            // Sin lógica. Stub para compatibilidad con designer.
+        }
+
+        private void txtMes_Inscripcion_TextChanged(object sender, EventArgs e)
+        {
+            // Sin lógica. Stub para compatibilidad con designer.
+        }
+
+        private void txtSexo_Nacido_TextChanged(object sender, EventArgs e)
+        {
+            // Sin lógica. Stub para compatibilidad con designer.
+        }
+
+        private void txtNombre_Madre_TabStopChanged(object sender, EventArgs e)
+        {
+            btnGrabar.Focus();
+        }
+
+        private void TxtNumeCert_MouseClick(object sender, MouseEventArgs e)
+        {
+            // Sin lógica.
+        }
+
         private void groupBox11_Enter(object sender, EventArgs e)
         {
-
-        }
-
-        private void FormActasDeNacimiento_Resize(object sender, EventArgs e)
-        {
-            AjustarPictureBox();
-
+            // Sin lógica.
         }
     }
-        }
-    
-
-
-    
-    
-    
-
+}

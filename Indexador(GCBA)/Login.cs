@@ -35,8 +35,7 @@ namespace Indexador_GCBA_
                 Entidades.Indexador oIndexador = new Entidades.Indexador();
                 oIndexador = cboxUsuarios.SelectedItem as Entidades.Indexador;
 
-                FrmPrincipal oFrmPrincipal = new FrmPrincipal(oIndexador);                
-                oFrmPrincipal.toolStripStatusLabel2.Text = "Usuario: " + cboxUsuarios.Text;
+                FormActasDeNacimiento oFrmPrincipal = new FormActasDeNacimiento(oIndexador);                
 
                 this.Hide();
                 oFrmPrincipal.Show();
