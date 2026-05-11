@@ -62,6 +62,13 @@ namespace Indexador_GCBA_.Servicios
         public string FechaVencimiento { get; set; }
     }
 
+    public enum TipoFechaCud
+    {
+        Nacimiento,
+        Emision,
+        Vencimiento
+    }
+
     public class CertificadoCudDto
     {
         public string NumeroCertificado { get; set; }
@@ -88,7 +95,7 @@ namespace Indexador_GCBA_.Servicios
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex RegexCodigoCif = new Regex(
-            @"^[bsde]\d+(\.\+?\d+)?$",
+            @"^[bsde]\d{2,4}(\.[+-]?\d{1,4})+$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // ==========================================================
@@ -121,14 +128,15 @@ namespace Indexador_GCBA_.Servicios
             c = char.ToLowerInvariant(c);
 
             return char.IsDigit(c) ||
-                   c == 'b' ||
-                   c == 's' ||
-                   c == 'd' ||
-                   c == 'e' ||
-                   c == '+' ||
-                   c == '.' ||
-                   c == ' ' ||
-                   c == ',';
+          c == 'b' ||
+          c == 's' ||
+          c == 'd' ||
+          c == 'e' ||
+          c == '+' ||
+          c == '-' ||
+          c == '.' ||
+          c == ' ' ||
+          c == ',';
         }
 
         // ==========================================================
@@ -152,6 +160,109 @@ namespace Indexador_GCBA_.Servicios
 
             return t;
         }
+      
+        public static string NormalizarFechaVencimiento(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.Trim();
+
+            t = t.Replace("-", "/")
+                 .Replace(".", "/")
+                 .Replace("\\", "/");
+
+            t = Regex.Replace(t, @"\s+", "");
+
+            DateTime dt;
+
+            // Caso: 24/9/17
+            Match m = Regex.Match(t, @"^(\d{1,2})/(\d{1,2})/(\d{1,2})$");
+
+            if (m.Success)
+            {
+                int dia = Convert.ToInt32(m.Groups[1].Value);
+                int mes = Convert.ToInt32(m.Groups[2].Value);
+                int anioCorto = Convert.ToInt32(m.Groups[3].Value);
+
+                int anio = 2000 + anioCorto;
+
+                // Regla específica para vencimientos:
+                // Si queda una fecha demasiado vieja, asumimos que el OCR o la carga abreviada
+                // corresponde a la década siguiente.
+                // Ejemplo: 24/9/17 -> 24/09/2027
+                if (anio < DateTime.Today.Year)
+                    anio += 10;
+
+                try
+                {
+                    dt = new DateTime(anio, mes, dia);
+                    return dt.ToString("dd/MM/yyyy");
+                }
+                catch
+                {
+                    return t;
+                }
+            }
+
+            // Caso: 24917 o 240917 no lo forzaría todavía.
+            // Para fechas compactas seguimos usando la normalización general.
+            return NormalizarFecha(t);
+        }
+        public static string NormalizarFechaCud(string texto, TipoFechaCud tipoFecha)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.Trim();
+
+            t = t.Replace("-", "/")
+                 .Replace(".", "/")
+                 .Replace("\\", "/");
+
+            t = Regex.Replace(t, @"\s+", "");
+
+            DateTime dt;
+
+            // Caso: 24/9/17
+            Match m = Regex.Match(t, @"^(\d{1,2})/(\d{1,2})/(\d{1,2})$");
+
+            if (m.Success)
+            {
+                int dia = Convert.ToInt32(m.Groups[1].Value);
+                int mes = Convert.ToInt32(m.Groups[2].Value);
+                int anioCorto = Convert.ToInt32(m.Groups[3].Value);
+
+                int anio = 2000 + anioCorto;
+
+                if (tipoFecha == TipoFechaCud.Vencimiento)
+                {
+                    // Para vencimiento, si el año queda pasado,
+                    // asumimos la década siguiente.
+                    // Ejemplo: 24/9/17 -> 24/09/2027
+                    if (anio < DateTime.Today.Year)
+                        anio += 10;
+                }
+
+                try
+                {
+                    dt = new DateTime(anio, mes, dia);
+                    return dt.ToString("dd/MM/yyyy");
+                }
+                catch
+                {
+                    return t;
+                }
+            }
+
+            // Caso: 24/9/2017
+            if (DateTime.TryParseExact(t, "d/M/yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
+                return dt.ToString("dd/MM/yyyy");
+
+            // Caso: 24092017 o 20270924
+            return NormalizarFecha(t);
+        }
+
 
         public static string NormalizarDni(string texto)
         {
@@ -292,6 +403,7 @@ namespace Indexador_GCBA_.Servicios
             return t;
         }
 
+
         public static string NormalizarCodigosCif(string texto)
         {
             if (string.IsNullOrWhiteSpace(texto))
@@ -320,17 +432,215 @@ namespace Indexador_GCBA_.Servicios
 
                 p = p.ToLowerInvariant();
 
-                // Correcciones típicas OCR:
-                p = p.Replace("B", "b")
-                     .Replace("S", "s")
-                     .Replace("D", "d")
-                     .Replace("E", "e");
+                p = p.Replace("—", "-")
+                     .Replace("–", "-")
+                     .Replace("_", "");
+
+                // Corrige e.5801.+3 -> e5801.+3
+                p = Regex.Replace(p, @"^([bsde])\.(?=\d)", "$1");
+
+                // Corrige espacios alrededor del signo:
+                // e5801. +3 -> e5801.+3
+                // e5801. -3 -> e5801.-3
+                p = Regex.Replace(p, @"\.\s*([+-])\s*", ".$1");
+
+                // Corrige ruido OCR típico:
+                // e5801.-+3 -> e5801.+3
+                // e5801.+-3 -> e5801.-3
+                p = p.Replace(".-+", ".+")
+                     .Replace(".+-", ".-");
+
+                p = Regex.Replace(p, @"\s+", "");
 
                 normalizados.Add(p);
             }
 
             return string.Join(" ", normalizados);
         }
+
+        public static string PrepararTextoCifDesdeOcr(string textoOcr, char letraEsperada)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            string t = textoOcr;
+
+            // Normalizamos separadores, pero NO convertimos letras a números globalmente.
+            t = t.Replace("\r", " ")
+                 .Replace("\n", " ")
+                 .Replace("\t", " ")
+                 .Replace(",", " ")
+                 .Replace(";", " ")
+                 .Replace("|", " ")
+                 .Replace("—", " ")
+                 .Replace("–", " ")
+                 .Replace("_", " ")
+                 .Replace(">", " ")
+                 .Replace("<", " ")
+                 .Replace("=", " ")
+                 .Replace(":", " ")
+                 .Replace("[", " ")
+                 .Replace("]", " ")
+                 .Replace("(", " ")
+                 .Replace(")", " ")
+                 .Replace("/", " ");
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            List<string> codigos = new List<string>();
+
+            string letra = Regex.Escape(letraEsperada.ToString());
+
+            // Caracteres que el OCR suele confundir dentro de números.
+            // OJO: solo se usan dentro de patrones candidatos, no sobre todo el texto.
+            string digitoOcr = @"0-9oOiIlLzZ";
+
+            // ==========================================================
+            // 1) Códigos que ya tienen la letra esperada.
+            // Ejemplos:
+            // d240.23
+            // d7202.23
+            // s110.888
+            // d 240.23
+            // ==========================================================
+            string patronConLetra =
+                @"(?<![a-zA-Z0-9])" +
+                letra +
+                @"\s*[" + digitoOcr + @"]{2,4}" +
+                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4})*" +
+                @"(?:\+)?" +
+                @"(?![a-zA-Z])";
+
+            foreach (Match m in Regex.Matches(t, patronConLetra, RegexOptions.IgnoreCase))
+            {
+                string codigo = m.Value.Replace(" ", "").ToLowerInvariant();
+
+                if (codigo.Length < 2)
+                    continue;
+
+                string cuerpo = codigo.Substring(1);
+                cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
+
+                string codigoFinal = letraEsperada + cuerpo;
+
+                if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
+                    codigos.Add(codigoFinal);
+            }
+
+            // ==========================================================
+            // 2) Códigos donde el OCR perdió la letra.
+            // Ejemplos:
+            // 1160.23  -> d1160.23
+            // 110.888  -> s110.888
+            //
+            // IMPORTANTE:
+            // Acá exigimos punto decimal/clasificador.
+            // Así evitamos falsos positivos como:
+            // LAC -> 1AC -> d1
+            // ==========================================================
+            string patronSinLetra =
+                @"(?<![a-zA-Z0-9])" +
+                @"[" + digitoOcr + @"]{2,4}" +
+                @"\s*\.\s*[" + digitoOcr + @"]{1,4}" +
+                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4})*" +
+                @"(?:\+)?" +
+                @"(?![a-zA-Z])";
+
+            foreach (Match m in Regex.Matches(t, patronSinLetra, RegexOptions.IgnoreCase))
+            {
+                string numero = m.Value.Replace(" ", "").ToLowerInvariant();
+                numero = NormalizarSoloNumeroCifDesdeOcr(numero);
+
+                string codigoFinal = letraEsperada + numero;
+
+                if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
+                    codigos.Add(codigoFinal);
+            }
+
+            // ==========================================================
+            // 3) Limpieza final y evitar duplicados.
+            // ==========================================================
+            List<string> codigosLimpios = new List<string>();
+
+            foreach (string codigo in codigos)
+            {
+                string limpio = new string(
+                    codigo
+                        .ToLowerInvariant()
+                        .Where(c => c == letraEsperada || char.IsDigit(c) || c == '.' || c == '+')
+                        .ToArray());
+
+                if (!CodigoCifOcrPareceValido(limpio, letraEsperada))
+                    continue;
+
+                if (!codigosLimpios.Contains(limpio))
+                    codigosLimpios.Add(limpio);
+            }
+
+            return IndexadorCudService.NormalizarCodigosCif(
+                string.Join(" ", codigosLimpios));
+        }
+
+        private static bool CodigoCifOcrPareceValido(string codigo, char letraEsperada)
+        {
+            if (string.IsNullOrWhiteSpace(codigo))
+                return false;
+
+            codigo = codigo.ToLowerInvariant().Trim();
+
+            if (!codigo.StartsWith(letraEsperada.ToString()))
+                return false;
+
+            string cuerpo = codigo.Substring(1);
+
+            // Evita falsos positivos como d1, s1, b1, e1.
+            if (Regex.IsMatch(cuerpo, @"^\d{1}$"))
+                return false;
+
+            // Acepta:
+            // d240.23
+            // d1160.23
+            // d7202.23
+            // d155.213
+            // s110.888
+            // b167.3+
+            return Regex.IsMatch(
+                codigo,
+                @"^" + Regex.Escape(letraEsperada.ToString()) + @"\d{2,4}(?:\.\d{1,4})*(?:\+)?$");
+        }
+
+
+
+        private static string NormalizarSoloNumeroCifDesdeOcr(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            char[] chars = texto.ToCharArray();
+
+            for (int i = 0; i < chars.Length; i++)
+            {
+                char c = chars[i];
+
+                if (c == 'o' || c == 'O')
+                {
+                    chars[i] = '0';
+                }
+                else if (c == 'z' || c == 'Z')
+                {
+                    chars[i] = '2';
+                }
+                else if (c == 'i' || c == 'I' || c == 'l' || c == 'L')
+                {
+                    chars[i] = '1';
+                }
+            }
+
+            return new string(chars);
+        }
+
+
+
 
         public static string SanitizarNombreArchivo(string texto)
         {
@@ -589,8 +899,8 @@ namespace Indexador_GCBA_.Servicios
             {
                 string c = codigo.Trim().ToLowerInvariant();
 
-                if (!RegexCodigoCif.IsMatch(c))
-                    return ResultadoValidacion.Error("Código CIF inválido en " + nombreCampo + ": " + codigo);
+                if (string.IsNullOrWhiteSpace(c))
+                    continue;
 
                 if (c[0] != char.ToLowerInvariant(letraEsperada))
                 {
@@ -598,34 +908,47 @@ namespace Indexador_GCBA_.Servicios
                         nombreCampo + " debe contener códigos que comiencen con '" +
                         char.ToLowerInvariant(letraEsperada) + "'. Código detectado: " + codigo);
                 }
+
+                if (!EsCodigoCifValidoPorLetra(c, letraEsperada))
+                {
+                    return ResultadoValidacion.Error(
+                        "Código CIF inválido en " + nombreCampo + ": " + codigo);
+                }
             }
 
             return ResultadoValidacion.Ok();
         }
-
-        private static bool DigitoVerificadorCuilValido(string cuil)
+        private static bool EsCodigoCifValidoPorLetra(string codigo, char letraEsperada)
         {
-            if (string.IsNullOrWhiteSpace(cuil) || cuil.Length != 11 || !cuil.All(char.IsDigit))
+            if (string.IsNullOrWhiteSpace(codigo))
                 return false;
 
-            int[] pesos = { 5, 4, 3, 2, 7, 6, 5, 4, 3, 2 };
+            codigo = codigo.ToLowerInvariant().Trim();
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
 
-            int suma = 0;
+            switch (letraEsperada)
+            {
+                case 'b':
+                    // Ejemplo: b167.3
+                    return Regex.IsMatch(codigo, @"^b\d{2,4}\.\d{1,4}$");
 
-            for (int i = 0; i < 10; i++)
-                suma += int.Parse(cuil[i].ToString()) * pesos[i];
+                case 's':
+                    // Ejemplo: s110.888
+                    return Regex.IsMatch(codigo, @"^s\d{2,4}\.\d{1,4}$");
 
-            int resto = suma % 11;
-            int verificador = 11 - resto;
+                case 'd':
+                    // Ejemplos: d240.23, d155.213
+                    return Regex.IsMatch(codigo, @"^d\d{2,4}\.\d{1,4}$");
 
-            if (verificador == 11)
-                verificador = 0;
-            else if (verificador == 10)
-                verificador = 9;
+                case 'e':
+                    // Ejemplos: e355.+3, e310.+3, e5801.+3, e5801.-3
+                    return Regex.IsMatch(codigo, @"^e\d{2,4}\.[+-]?\d$");
 
-            int digito = int.Parse(cuil[10].ToString());
-
-            return digito == verificador;
+                default:
+                    return false;
+            }
         }
+
+
     }
 }

@@ -1,15 +1,18 @@
-﻿using System;
+﻿using Indexador_GCBA_.Datos;
+using Indexador_GCBA_.Servicios;
+using PdfiumViewer;
+using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Indexador_GCBA_.Datos;
-using Indexador_GCBA_.Servicios;
-using PdfiumViewer;
 
 namespace Indexador_GCBA_
 {
@@ -64,6 +67,44 @@ namespace Indexador_GCBA_
         private bool _autocompletandoCuil = false;
         private bool _sincronizandoCamposCud = false;
 
+        // ==========================================================
+        // PICTUREBOX / OCR POR CUADRANTE
+        // ==========================================================
+
+        private readonly OcrPorCuadranteService _ocrPorCuadranteService = new OcrPorCuadranteService();
+
+        private bool _seleccionandoCuadranteOcr = false;
+        private Point _puntoInicioCuadranteOcr = Point.Empty;
+        private Rectangle _rectanguloSeleccionVistaOcr = Rectangle.Empty;
+
+        private Control _controlDestinoOcrActivo = null;
+
+        private readonly Color _colorCuadranteOcr = Color.FromArgb(70, 0, 120, 215);
+        private readonly Pen _bordeCuadranteOcr = new Pen(Color.DodgerBlue, 2);
+      
+        private Dictionary<Control, RectangleF> _zonasSugeridasOcrCud =
+    new Dictionary<Control, RectangleF>();
+
+        private EstadoCuadranteOcr _estadoCuadranteOcr = EstadoCuadranteOcr.Ninguno;
+
+        private bool _moviendoCuadranteSugeridoOcr = false;
+        private bool _procesandoCuadranteOcr = false;
+
+        private Point _offsetMovimientoCuadranteOcr = Point.Empty;
+
+        private const int MIN_ANCHO_CUADRANTE_OCR = 8;
+        private const int MIN_ALTO_CUADRANTE_OCR = 8;
+
+        private enum EstadoCuadranteOcr
+        {
+            Ninguno,
+            SugeridoAzul,
+            DibujandoManual,
+            MoviendoSugerido,
+            ConfirmadoVerde,
+            ErrorNaranja
+        }
+
         public FormActasDeNacimiento(Entidades.Indexador pIndexador)
         {
             InitializeComponent();
@@ -92,43 +133,18 @@ namespace Indexador_GCBA_
 
             _toolTipCud.AutoPopDelay = 8000;
             _toolTipCud.InitialDelay = 300;
-            _toolTipCud.ReshowDelay = 100;
+            _toolTipCud.ReshowDelay = 100;      
 
-            DesvincularEventosViejosActas();
             ConfigurarCombosCud();
             ConfigurarEventosCud();
             ConfigurarOrdenTabulacionCud();
+
+            ConfigurarSeleccionCuadranteOcr();
+
             RestaurarColoresFormularioCud();
         }
 
-        private void DesvincularEventosViejosActas()
-        {
-            // Evita que eventos viejos del diseñador o del formulario anterior
-            // se ejecuten junto con la lógica nueva de CUD.
-
-            TxtNumeCert.KeyDown -= TxtNumeCert_KeyDown;
-            TxtNumeCert.KeyPress -= TxtNumeCert_KeyPress;
-            TxtNumeCert.MouseClick -= TxtNumeCert_MouseClick;
-
-            TxtApellidoNombre.KeyDown -= txtTomo_Acta_KeyDown;
-            CmbSexo.KeyDown -= txtNumero_Acta_KeyDown;
-            TxtNumDNI.KeyDown -= txtAnio_Acta_KeyDown;
-            TxtNumCuil.KeyDown -= txtDia_inscripcion_KeyDown;
-            TxtFechaNac.KeyDown -= txtMes_Inscripcion_KeyDown;
-            TxtDiagnostico.KeyDown -= txtAño_Inscripcion_KeyDown;
-            TxtFuncionesCorporales.KeyDown -= txtNombre_Nacido_KeyDown;
-            TxtEstructurasCorporales.KeyDown -= txtCNI_Numero_KeyDown;
-            TxtActividad_Particip.KeyDown -= txtSexo_Nacido_KeyDown;
-            TxtFactoresAmbientales.KeyDown -= txtDia_Nacimiento_KeyDown;
-            TxtOrientacion.KeyDown -= txtMes_Nacimiento_KeyDown;
-            TxtFechaVencimiento.KeyDown -= txtAño_Nacimiento_KeyDown;
-            CmbAcomapante.KeyDown -= txtNombre_Padre_KeyDown;
-            TxtFechaEmision.KeyDown -= txtNombre_Madre_KeyDown;
-
-            TxtOrientacion.TextChanged -= txtMes_Nacimiento_TextChanged;
-            TxtFechaNac.TextChanged -= txtMes_Inscripcion_TextChanged;
-            TxtActividad_Particip.TextChanged -= txtSexo_Nacido_TextChanged;
-        }
+      
 
         private void ConfigurarCombosCud()
         {
@@ -982,11 +998,14 @@ namespace Indexador_GCBA_
             if (txt == null)
                 return;
 
-            txt.Text = IndexadorCudService.NormalizarFecha(txt.Text);
-
             if (txt == TxtFechaNac)
             {
-                MarcarCampo(txt,
+                txt.Text = IndexadorCudService.NormalizarFechaCud(
+                    txt.Text,
+                    TipoFechaCud.Nacimiento);
+
+                MarcarCampo(
+                    txt,
                     IndexadorCudService.ValidarFecha(
                         txt.Text,
                         "Fecha de nacimiento",
@@ -997,7 +1016,12 @@ namespace Indexador_GCBA_
             }
             else if (txt == TxtFechaEmision)
             {
-                MarcarCampo(txt,
+                txt.Text = IndexadorCudService.NormalizarFechaCud(
+                    txt.Text,
+                    TipoFechaCud.Emision);
+
+                MarcarCampo(
+                    txt,
                     IndexadorCudService.ValidarFecha(
                         txt.Text,
                         "Fecha de emisión",
@@ -1008,7 +1032,12 @@ namespace Indexador_GCBA_
             }
             else if (txt == TxtFechaVencimiento)
             {
-                MarcarCampo(txt,
+                txt.Text = IndexadorCudService.NormalizarFechaCud(
+                    txt.Text,
+                    TipoFechaCud.Vencimiento);
+
+                MarcarCampo(
+                    txt,
                     IndexadorCudService.ValidarFecha(
                         txt.Text,
                         "Fecha de vencimiento",
@@ -1020,6 +1049,7 @@ namespace Indexador_GCBA_
 
             ValidarFechasCruzadasEnPantalla();
         }
+
 
         private void TextoLibre_LeaveCud(object sender, EventArgs e)
         {
@@ -1524,36 +1554,108 @@ namespace Indexador_GCBA_
             _cargandoDatosCud = true;
 
             if (destino == TxtNumeCert)
+            {
                 TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(textoOcr);
+            }
             else if (destino == TxtApellidoNombre)
+            {
                 TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(textoOcr);
+            }
             else if (destino == TxtNumDNI)
+            {
                 TxtNumDNI.Text = IndexadorCudService.NormalizarDni(textoOcr);
+            }
             else if (destino == TxtNumCuil)
+            {
                 TxtNumCuil.Text = IndexadorCudService.NormalizarCuil(textoOcr);
-            else if (destino == TxtFechaNac || destino == TxtFechaEmision || destino == TxtFechaVencimiento)
-                ((TextBox)destino).Text = IndexadorCudService.NormalizarFecha(textoOcr);
+            }
+            else if (destino == TxtFechaNac)
+            {
+                TxtFechaNac.Text = IndexadorCudService.NormalizarFechaCud(
+                    textoOcr,
+                    TipoFechaCud.Nacimiento);
+            }
+            else if (destino == TxtFechaEmision)
+            {
+                TxtFechaEmision.Text = IndexadorCudService.NormalizarFechaCud(
+                    textoOcr,
+                    TipoFechaCud.Emision);
+            }
+            else if (destino == TxtFechaVencimiento)
+            {
+                TxtFechaVencimiento.Text = IndexadorCudService.NormalizarFechaCud(
+                    textoOcr,
+                    TipoFechaCud.Vencimiento);
+            }
             else if (destino == TxtFuncionesCorporales ||
                      destino == TxtEstructurasCorporales ||
                      destino == TxtActividad_Particip ||
                      destino == TxtFactoresAmbientales)
+            {
                 ((TextBox)destino).Text = IndexadorCudService.NormalizarCodigosCif(textoOcr);
+            }
             else if (destino == TxtDiagnostico)
+            {
                 TxtDiagnostico.Text = IndexadorCudService.NormalizarTextoLibre(textoOcr);
+            }
             else if (destino == TxtOrientacion)
+            {
                 TxtOrientacion.Text = IndexadorCudService.NormalizarOrientacion(textoOcr);
+            }
             else if (destino == CmbSexo)
-                CmbSexo.Text = IndexadorCudService.NormalizarSexo(textoOcr);
+            {
+                string sexo = IndexadorCudService.NormalizarSexo(textoOcr);
+
+                if (CmbSexo.Items.Contains(sexo))
+                    CmbSexo.Text = sexo;
+            }
             else if (destino == CmbAcomapante)
-                CmbAcomapante.Text = IndexadorCudService.NormalizarSiNo(textoOcr);
+            {
+                string acompaniante = IndexadorCudService.NormalizarSiNo(textoOcr);
+
+                if (CmbAcomapante.Items.Contains(acompaniante))
+                    CmbAcomapante.Text = acompaniante;
+            }
 
             _cargandoDatosCud = false;
 
+            // ======================================================
+            // SINCRONIZACIONES POST-OCR
+            // ======================================================
+
             if (destino == TxtNumeCert)
             {
-                DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+                DatosNumeroCertificadoCud datos =
+                    IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+
                 if (datos.EsValido)
-                    AplicarTriangulacionCertificado(datos, true);
+                {
+                    // Si ya implementaste la versión forzada, usá esta:
+                    AplicarTriangulacionCertificadoForzada(datos);
+
+                    // Si todavía NO implementaste la versión forzada,
+                    // reemplazá la línea anterior por:
+                    // AplicarTriangulacionCertificado(datos, true);
+                }
+            }
+            else if (destino == TxtNumDNI)
+            {
+                string dni = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+
+                ResultadoValidacion rDni = IndexadorCudService.ValidarDni(dni, true);
+
+                if (rDni.EsValido)
+                {
+                    _sincronizandoCamposCud = true;
+
+                    // DNI controla CUIL.
+                    ActualizarCuilDesdeDni(dni);
+
+                    // DNI puede controlar el número de certificado.
+                    ActualizarNumeroCertificadoDesdeDni(dni);
+
+                    _sincronizandoCamposCud = false;
+                }
             }
         }
 
@@ -1563,6 +1665,8 @@ namespace Indexador_GCBA_
 
         private void LimpiarTextBox()
         {
+
+            OcultarCuadranteOcr();
             pictureBox1.Image = null;
 
             _cargandoDatosCud = true;
@@ -1972,19 +2076,1321 @@ namespace Indexador_GCBA_
             TxtNumeCert.Focus();
         }
 
-
-
-        // ==========================================================
-
-        // MÉTODOS VIEJOS DE ACTAS: STUBS PARA QUE NO ROMPA EL DESIGNER
-        // No tienen lógica vieja. Si el diseñador los sigue referenciando,
-        // no generan comportamiento incorrecto.
-        // ==========================================================
-
-        private void ValidarSoloNumeros(object sender, KeyPressEventArgs e)
+        private void ConfigurarSeleccionCuadranteOcr()
         {
-            KeyPressSoloNumerosCud(sender, e);
+            InicializarZonasSugeridasOcrCud();
+
+            pictureBox1.MouseDown -= PictureBox1_MouseDownCuadranteOcr;
+            pictureBox1.MouseMove -= PictureBox1_MouseMoveCuadranteOcr;
+            pictureBox1.MouseUp -= PictureBox1_MouseUpCuadranteOcr;
+            pictureBox1.Paint -= PictureBox1_PaintCuadranteOcr;
+
+            pictureBox1.MouseDown += PictureBox1_MouseDownCuadranteOcr;
+            pictureBox1.MouseMove += PictureBox1_MouseMoveCuadranteOcr;
+            pictureBox1.MouseUp += PictureBox1_MouseUpCuadranteOcr;
+            pictureBox1.Paint += PictureBox1_PaintCuadranteOcr;
+
+            foreach (Control c in ObtenerControlesCargaCud())
+            {
+                c.GotFocus -= ControlCarga_GotFocusOcr;
+                c.Enter -= ControlCarga_GotFocusOcr;
+
+                c.Enter += ControlCarga_GotFocusOcr;
+            }
+
+            btnGrabar.Enter -= BtnGrabar_EnterOcr;
+            btnGrabar.Enter += BtnGrabar_EnterOcr;
         }
+
+        private Bitmap ClonarImagenActualPictureBoxParaOcr()
+        {
+            if (pictureBox1.Image == null)
+                return null;
+
+            try
+            {
+                // Se clona en el hilo UI, antes del Task.Run.
+                // Así el OCR trabaja sobre una imagen independiente y no sobre pictureBox1.Image.
+                return new Bitmap(pictureBox1.Image);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[OCR CUADRANTE] Error clonando imagen actual:");
+                Debug.WriteLine(ex.ToString());
+                return null;
+            }
+        }
+
+        private void InicializarZonasSugeridasOcrCud()
+        {
+            _zonasSugeridasOcrCud.Clear();
+
+            // Coordenadas normalizadas:
+            // X, Y, Ancho, Alto.
+            // 0.00 = inicio del área visible de la imagen.
+            // 1.00 = final del área visible de la imagen.
+            //
+            // Estos valores son iniciales. Luego los ajustamos mirando el CUD real.
+
+            _zonasSugeridasOcrCud[TxtNumeCert] =
+                new RectangleF(0.50f, 0.048f, 0.46f, 0.038f);
+
+            _zonasSugeridasOcrCud[TxtApellidoNombre] =
+                new RectangleF(0.27f, 0.11f, 0.30f, 0.025f);
+
+            _zonasSugeridasOcrCud[CmbSexo] =
+                new RectangleF(0.25f, 0.13f, 0.20f, 0.025f);
+
+            _zonasSugeridasOcrCud[TxtNumDNI] =
+                new RectangleF(0.25f, 0.13f, 0.20f, 0.025f);
+
+            _zonasSugeridasOcrCud[TxtNumCuil] =
+                new RectangleF(0.52f, 0.13f, 0.20f, 0.025f);
+
+            _zonasSugeridasOcrCud[TxtFechaNac] =
+                   new RectangleF(0.82f, 0.12f, 0.13f, 0.038f);
+
+            _zonasSugeridasOcrCud[TxtDiagnostico] =
+                  new RectangleF(0.22f, 0.16f, 0.46f, 0.045f);
+
+            _zonasSugeridasOcrCud[TxtFuncionesCorporales] =
+              new RectangleF(0.28f, 0.24f, 0.40f, 0.045f);
+
+            _zonasSugeridasOcrCud[TxtEstructurasCorporales] =
+                    new RectangleF(0.28f, 0.28f, 0.40f, 0.045f);
+
+            _zonasSugeridasOcrCud[TxtActividad_Particip] =
+                new RectangleF(0.08f, 0.32f, 0.84f, 0.042f);
+
+            _zonasSugeridasOcrCud[TxtFactoresAmbientales] =
+                 new RectangleF(0.28f, 0.36f, 0.40f, 0.045f);
+
+            _zonasSugeridasOcrCud[TxtOrientacion] =
+                new RectangleF(0.095f, 0.42f, 0.84f, 0.050f);
+
+            _zonasSugeridasOcrCud[TxtFechaVencimiento] =
+              new RectangleF(0.25f, 0.465f, 0.20f, 0.025f);
+
+            _zonasSugeridasOcrCud[CmbAcomapante] =
+           new RectangleF(0.16f, 0.495f, 0.19f, 0.035f);
+
+            _zonasSugeridasOcrCud[TxtFechaEmision] =
+                new RectangleF(0.695f, 0.55f, 0.25f, 0.040f);
+        }
+
+        private void ControlCarga_GotFocusOcr(object sender, EventArgs e)
+        {
+            if (_procesandoCuadranteOcr)
+                return;
+
+            Control control = sender as Control;
+
+            if (control == null)
+                return;
+
+            if (!(control is TextBox) && !(control is ComboBox))
+                return;
+
+            _controlDestinoOcrActivo = control;
+
+            MostrarCuadranteSugeridoParaControl(control);
+        }
+        private void BtnGrabar_EnterOcr(object sender, EventArgs e)
+        {
+            OcultarCuadranteOcr();
+        }
+        private void MostrarCuadranteSugeridoParaControl(Control control)
+        {
+            if (pictureBox1.Image == null)
+                return;
+
+            if (control == null)
+                return;
+
+            if (_zonasSugeridasOcrCud == null || _zonasSugeridasOcrCud.Count == 0)
+                InicializarZonasSugeridasOcrCud();
+
+            RectangleF zonaNormalizada;
+
+            if (!_zonasSugeridasOcrCud.TryGetValue(control, out zonaNormalizada))
+            {
+                OcultarCuadranteOcr();
+                return;
+            }
+
+            Rectangle rect = ConvertirZonaNormalizadaARectanguloVista(zonaNormalizada);
+
+            if (!CuadranteOcrTieneTamanioValido(rect))
+            {
+                OcultarCuadranteOcr();
+                return;
+            }
+
+            _rectanguloSeleccionVistaOcr = rect;
+            _estadoCuadranteOcr = EstadoCuadranteOcr.SugeridoAzul;
+
+            _seleccionandoCuadranteOcr = false;
+            _moviendoCuadranteSugeridoOcr = false;
+
+            Debug.WriteLine("[OCR CUADRANTE] Cuadrante sugerido para: " + control.Name);
+            Debug.WriteLine("[OCR CUADRANTE] Rectángulo sugerido vista: " + _rectanguloSeleccionVistaOcr);
+
+            pictureBox1.Invalidate();
+        }
+        private Rectangle ConvertirZonaNormalizadaARectanguloVista(RectangleF zona)
+        {
+            Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+            if (areaImagen == Rectangle.Empty)
+                return Rectangle.Empty;
+
+            int x = areaImagen.Left + (int)(zona.X * areaImagen.Width);
+            int y = areaImagen.Top + (int)(zona.Y * areaImagen.Height);
+            int width = (int)(zona.Width * areaImagen.Width);
+            int height = (int)(zona.Height * areaImagen.Height);
+
+            Rectangle rect = new Rectangle(x, y, width, height);
+
+            return LimitarRectanguloAlAreaImagenVisible(rect);
+        }
+        private Rectangle ObtenerRectanguloImagenVisibleEnPictureBox()
+        {
+            if (pictureBox1.Image == null)
+                return Rectangle.Empty;
+
+            Rectangle area = pictureBox1.ClientRectangle;
+
+            int imageWidth = pictureBox1.Image.Width;
+            int imageHeight = pictureBox1.Image.Height;
+
+            if (imageWidth <= 0 || imageHeight <= 0 || area.Width <= 0 || area.Height <= 0)
+                return Rectangle.Empty;
+
+            if (pictureBox1.SizeMode != PictureBoxSizeMode.Zoom)
+                return area;
+
+            float ratioImagen = (float)imageWidth / imageHeight;
+            float ratioControl = (float)area.Width / area.Height;
+
+            int anchoMostrado;
+            int altoMostrado;
+            int x;
+            int y;
+
+            if (ratioControl > ratioImagen)
+            {
+                altoMostrado = area.Height;
+                anchoMostrado = (int)(altoMostrado * ratioImagen);
+                x = area.X + (area.Width - anchoMostrado) / 2;
+                y = area.Y;
+            }
+            else
+            {
+                anchoMostrado = area.Width;
+                altoMostrado = (int)(anchoMostrado / ratioImagen);
+                x = area.X;
+                y = area.Y + (area.Height - altoMostrado) / 2;
+            }
+
+            return new Rectangle(x, y, anchoMostrado, altoMostrado);
+        }
+
+
+        private void PictureBox1_MouseDownCuadranteOcr(object sender, MouseEventArgs e)
+        {
+            if (pictureBox1.Image == null)
+                return;
+
+            if (_procesandoCuadranteOcr)
+                return;
+
+            if (e.Button == MouseButtons.Right)
+            {
+                if (ClickDentroDelCuadranteOcr(e.Location))
+                {
+                    Debug.WriteLine("[OCR CUADRANTE] Botón derecho: se oculta cuadrante.");
+                    OcultarCuadranteOcr();
+                }
+
+                return;
+            }
+
+            if (e.Button != MouseButtons.Left)
+                return;
+
+            if (_controlDestinoOcrActivo == null)
+            {
+                InformarEstadoOcr("Primero seleccione el campo donde quiere pegar el texto OCR.");
+                return;
+            }
+
+            Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+            if (areaImagen == Rectangle.Empty)
+                return;
+
+            if (!areaImagen.Contains(e.Location))
+                return;
+
+            if (ClickDentroDelCuadranteOcr(e.Location))
+            {
+                _moviendoCuadranteSugeridoOcr = true;
+                _seleccionandoCuadranteOcr = false;
+
+                _estadoCuadranteOcr = EstadoCuadranteOcr.MoviendoSugerido;
+
+                _offsetMovimientoCuadranteOcr = new Point(
+                    e.X - _rectanguloSeleccionVistaOcr.X,
+                    e.Y - _rectanguloSeleccionVistaOcr.Y);
+
+                pictureBox1.Cursor = Cursors.SizeAll;
+
+                Debug.WriteLine("[OCR CUADRANTE] Inicia movimiento de cuadrante existente.");
+                return;
+            }
+
+            _seleccionandoCuadranteOcr = true;
+            _moviendoCuadranteSugeridoOcr = false;
+
+            _estadoCuadranteOcr = EstadoCuadranteOcr.DibujandoManual;
+
+            _puntoInicioCuadranteOcr = e.Location;
+            _rectanguloSeleccionVistaOcr = new Rectangle(e.Location, Size.Empty);
+
+            pictureBox1.Cursor = Cursors.Cross;
+
+            Debug.WriteLine("[OCR CUADRANTE] Inicia dibujo manual de cuadrante.");
+            pictureBox1.Invalidate();
+        }
+
+        private void PictureBox1_MouseMoveCuadranteOcr(object sender, MouseEventArgs e)
+        {
+            if (pictureBox1.Image == null)
+                return;
+
+            if (_procesandoCuadranteOcr)
+                return;
+
+            if (_moviendoCuadranteSugeridoOcr)
+            {
+                int nuevoX = e.X - _offsetMovimientoCuadranteOcr.X;
+                int nuevoY = e.Y - _offsetMovimientoCuadranteOcr.Y;
+
+                Rectangle nuevoRect = new Rectangle(
+                    nuevoX,
+                    nuevoY,
+                    _rectanguloSeleccionVistaOcr.Width,
+                    _rectanguloSeleccionVistaOcr.Height);
+
+                _rectanguloSeleccionVistaOcr = LimitarRectanguloAlAreaImagenVisible(nuevoRect);
+
+                pictureBox1.Invalidate();
+                return;
+            }
+
+            if (_seleccionandoCuadranteOcr)
+            {
+                Rectangle rect = CrearRectanguloNormalizado(
+                    _puntoInicioCuadranteOcr,
+                    e.Location);
+
+                Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+                _rectanguloSeleccionVistaOcr = Rectangle.Intersect(rect, areaImagen);
+
+                pictureBox1.Invalidate();
+                return;
+            }
+
+            if (ClickDentroDelCuadranteOcr(e.Location))
+                pictureBox1.Cursor = Cursors.SizeAll;
+            else
+                pictureBox1.Cursor = Cursors.Cross;
+        }
+
+        private async void PictureBox1_MouseUpCuadranteOcr(object sender, MouseEventArgs e)
+        {
+            if (pictureBox1.Image == null)
+                return;
+
+            if (_procesandoCuadranteOcr)
+                return;
+
+            if (e.Button != MouseButtons.Left)
+                return;
+
+            bool ejecutarOcr = false;
+
+            if (_moviendoCuadranteSugeridoOcr)
+            {
+                _moviendoCuadranteSugeridoOcr = false;
+                ejecutarOcr = true;
+
+                Debug.WriteLine("[OCR CUADRANTE] Finaliza movimiento. Ejecutar OCR.");
+            }
+
+            if (_seleccionandoCuadranteOcr)
+            {
+                _seleccionandoCuadranteOcr = false;
+
+                _rectanguloSeleccionVistaOcr = CrearRectanguloNormalizado(
+                    _puntoInicioCuadranteOcr,
+                    e.Location);
+
+                _rectanguloSeleccionVistaOcr =
+                    LimitarRectanguloAlAreaImagenVisible(_rectanguloSeleccionVistaOcr);
+
+                ejecutarOcr = true;
+
+                Debug.WriteLine("[OCR CUADRANTE] Finaliza dibujo manual. Ejecutar OCR.");
+            }
+
+            pictureBox1.Cursor = Cursors.Cross;
+
+            if (!ejecutarOcr)
+                return;
+
+            if (!CuadranteOcrTieneTamanioValido(_rectanguloSeleccionVistaOcr))
+            {
+                Debug.WriteLine("[OCR CUADRANTE] Rectángulo demasiado chico. Se descarta.");
+                OcultarCuadranteOcr();
+                return;
+            }
+
+            _estadoCuadranteOcr = EstadoCuadranteOcr.ConfirmadoVerde;
+            pictureBox1.Invalidate();
+
+            await ProcesarCuadranteSeleccionadoOcr();
+        }
+
+        private void PictureBox1_PaintCuadranteOcr(object sender, PaintEventArgs e)
+        {
+            if (_estadoCuadranteOcr == EstadoCuadranteOcr.Ninguno)
+                return;
+
+            if (_rectanguloSeleccionVistaOcr == Rectangle.Empty)
+                return;
+
+            if (!CuadranteOcrTieneTamanioValido(_rectanguloSeleccionVistaOcr))
+                return;
+
+            Color color = ObtenerColorCuadranteOcr();
+            Color relleno = Color.FromArgb(45, color);
+
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            using (Brush brush = new SolidBrush(relleno))
+            {
+                e.Graphics.FillRectangle(brush, _rectanguloSeleccionVistaOcr);
+            }
+
+            using (Pen pen = new Pen(color, 2))
+            {
+                if (_estadoCuadranteOcr == EstadoCuadranteOcr.SugeridoAzul)
+                    pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+
+                e.Graphics.DrawRectangle(pen, _rectanguloSeleccionVistaOcr);
+            }
+        }
+
+        private Color ObtenerColorCuadranteOcr()
+        {
+            switch (_estadoCuadranteOcr)
+            {
+                case EstadoCuadranteOcr.SugeridoAzul:
+                    return Color.DodgerBlue;
+
+                case EstadoCuadranteOcr.DibujandoManual:
+                    return Color.DodgerBlue;
+
+                case EstadoCuadranteOcr.MoviendoSugerido:
+                    return Color.DeepSkyBlue;
+
+                case EstadoCuadranteOcr.ConfirmadoVerde:
+                    return Color.LimeGreen;
+
+                case EstadoCuadranteOcr.ErrorNaranja:
+                    return Color.Orange;
+
+                default:
+                    return Color.Transparent;
+            }
+        }
+
+        private Rectangle CrearRectanguloNormalizado(Point p1, Point p2)
+        {
+            int x = Math.Min(p1.X, p2.X);
+            int y = Math.Min(p1.Y, p2.Y);
+            int width = Math.Abs(p1.X - p2.X);
+            int height = Math.Abs(p1.Y - p2.Y);
+
+            return new Rectangle(x, y, width, height);
+        }
+
+       private async Task ProcesarCuadranteSeleccionadoOcr()
+{
+    if (_procesandoCuadranteOcr)
+        return;
+
+    Control destino = _controlDestinoOcrActivo;
+
+    if (destino == null)
+    {
+        InformarEstadoOcr("No hay un campo activo para pegar el OCR.");
+        _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+        pictureBox1.Invalidate();
+        return;
+    }
+
+    if (!CuadranteOcrTieneTamanioValido(_rectanguloSeleccionVistaOcr))
+    {
+        InformarEstadoOcr("El cuadrante OCR es demasiado chico.");
+        _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+        pictureBox1.Invalidate();
+        return;
+    }
+
+    bool finalizoEnExitoYAvanzo = false;
+
+    try
+    {
+        _procesandoCuadranteOcr = true;
+        Cursor = Cursors.WaitCursor;
+
+        Debug.WriteLine("[OCR CUADRANTE] Procesando campo: " + destino.Name);
+        Debug.WriteLine("[OCR CUADRANTE] Rectángulo vista: " + _rectanguloSeleccionVistaOcr);
+
+                Rectangle rectanguloVistaOcr = _rectanguloSeleccionVistaOcr;
+                Size tamanioPictureBox = pictureBox1.ClientSize;
+                PictureBoxSizeMode sizeMode = pictureBox1.SizeMode;
+
+                Bitmap imagenParaOcr = ClonarImagenActualPictureBoxParaOcr();
+
+                if (imagenParaOcr == null)
+                {
+                    InformarEstadoOcr("No se pudo preparar la imagen para OCR.");
+                    _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+                    pictureBox1.Invalidate();
+
+                    destino.Focus();
+                    return;
+                }
+
+                ResultadoOcrCuadrante resultado;
+
+                using (imagenParaOcr)
+                {
+                    resultado = await Task.Run(() =>
+                    {
+                        return _ocrPorCuadranteService.LeerTextoDesdeSeleccionDetalle(
+                            imagenParaOcr,
+                            tamanioPictureBox,
+                            sizeMode,
+                            rectanguloVistaOcr,
+                            guardarDebug: true);
+                    });
+                }
+
+                InformarEstadoOcr(resultado.MensajeTecnico);
+
+        Debug.WriteLine("[OCR CUADRANTE] Mensaje técnico:");
+        Debug.WriteLine(resultado.MensajeTecnico);
+        Debug.WriteLine("[OCR CUADRANTE] Rectángulo imagen:");
+        Debug.WriteLine(resultado.RectanguloImagen.ToString());
+        Debug.WriteLine("[OCR CUADRANTE] Recorte:");
+        Debug.WriteLine(resultado.AnchoRecorte + "x" + resultado.AltoRecorte);
+
+        if (!resultado.HayTexto)
+        {
+            Debug.WriteLine("[OCR CUADRANTE] Sin texto detectado.");
+
+            _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+            pictureBox1.Invalidate();
+
+            destino.Focus();
+            return;
+        }
+
+        ResultadoAplicacionOcr resultadoAplicacion = PrepararTextoOcrParaDestino(
+            destino,
+            resultado.Texto,
+            resultado.ConfianzaPromedio);
+
+        Debug.WriteLine("[OCR CUADRANTE] Texto crudo:");
+        Debug.WriteLine(resultado.Texto);
+        Debug.WriteLine("[OCR CUADRANTE] Texto preparado:");
+        Debug.WriteLine(resultadoAplicacion.TextoPreparado);
+        Debug.WriteLine("[OCR CUADRANTE] Campo destino: " + destino.Name);
+        Debug.WriteLine("[OCR CUADRANTE] Confianza OCR: " + resultado.ConfianzaPromedio);
+        Debug.WriteLine("[OCR CUADRANTE] Aceptado: " + resultadoAplicacion.Aceptado);
+        Debug.WriteLine("[OCR CUADRANTE] Mensaje: " + resultadoAplicacion.Mensaje);
+
+        if (!resultadoAplicacion.Aceptado)
+        {
+            InformarEstadoOcr(resultadoAplicacion.Mensaje);
+            MarcarCampo(destino, ResultadoValidacion.Advertencia(resultadoAplicacion.Mensaje));
+
+            _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+            pictureBox1.Invalidate();
+
+            destino.Focus();
+            return;
+        }
+
+        AplicarTextoCapturadoOcr(destino, resultadoAplicacion.TextoPreparado);
+        ValidarCampoLuegoDeOcr(destino);
+
+        // Marca visualmente el cuadrante como confirmado.
+        _estadoCuadranteOcr = EstadoCuadranteOcr.ConfirmadoVerde;
+        pictureBox1.Invalidate();
+
+        Debug.WriteLine("[OCR CUADRANTE] OCR aceptado. Se libera bloqueo y se avanza al siguiente campo.");
+
+        // ======================================================
+        // CLAVE:
+        // Liberamos ANTES de mover foco.
+        // Si no, el Enter del siguiente campo no dibuja el azul.
+        // ======================================================
+        _procesandoCuadranteOcr = false;
+        Cursor = Cursors.Default;
+
+        finalizoEnExitoYAvanzo = true;
+
+        MoverFocoCud(destino, true);
+    }
+    catch (Exception ex)
+    {
+        InformarEstadoOcr("Error OCR cuadrante: " + ex.Message);
+        Debug.WriteLine("[OCR CUADRANTE][ERROR] " + ex);
+
+        _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+        pictureBox1.Invalidate();
+
+        if (destino != null)
+            destino.Focus();
+    }
+    finally
+    {
+        if (!finalizoEnExitoYAvanzo)
+        {
+            _procesandoCuadranteOcr = false;
+            Cursor = Cursors.Default;
+        }
+    }
+}
+
+
+        private void InformarEstadoOcr(string mensaje)
+        {
+            if (string.IsNullOrWhiteSpace(mensaje))
+                return;
+
+            Debug.WriteLine("[OCR CUADRANTE] " + mensaje);
+
+            // No es intrusivo: queda como ayuda al pasar el mouse sobre el PDF.
+            _toolTipCud.SetToolTip(pictureBox1, mensaje);
+        }
+
+
+        private void ValidarCampoLuegoDeOcr(Control destino)
+        {
+            if (destino == TxtNumeCert)
+            {
+                TxtNumeCert_LeaveCud(TxtNumeCert, EventArgs.Empty);
+            }
+            else if (destino == TxtApellidoNombre)
+            {
+                TxtApellidoNombre_LeaveCud(TxtApellidoNombre, EventArgs.Empty);
+            }
+            else if (destino == TxtNumDNI)
+            {
+                TxtNumDNI_LeaveCud(TxtNumDNI, EventArgs.Empty);
+            }
+            else if (destino == TxtNumCuil)
+            {
+                TxtNumCuil_LeaveCud(TxtNumCuil, EventArgs.Empty);
+            }
+            else if (destino == TxtFechaNac || destino == TxtFechaEmision || destino == TxtFechaVencimiento)
+            {
+                Fecha_LeaveCud(destino, EventArgs.Empty);
+            }
+            else if (destino == TxtDiagnostico)
+            {
+                TextoLibre_LeaveCud(TxtDiagnostico, EventArgs.Empty);
+            }
+            else if (destino == TxtOrientacion)
+            {
+                TxtOrientacion_LeaveCud(TxtOrientacion, EventArgs.Empty);
+            }
+            else if (destino == TxtFuncionesCorporales ||
+                     destino == TxtEstructurasCorporales ||
+                     destino == TxtActividad_Particip ||
+                     destino == TxtFactoresAmbientales)
+            {
+                CodigoCif_LeaveCud(destino, EventArgs.Empty);
+            }
+            else if (destino == CmbSexo || destino == CmbAcomapante)
+            {
+                Combo_ChangedCud(destino, EventArgs.Empty);
+            }
+        }
+        private ResultadoAplicacionOcr PrepararTextoOcrParaDestino(Control destino, string textoOcr, float confianza)
+        {
+            string crudo = textoOcr ?? string.Empty;
+
+            if (destino == TxtNumeCert)
+                return PrepararOcrNumeroCertificado(crudo, confianza);
+
+            if (destino == TxtNumDNI)
+                return PrepararOcrDni(crudo, confianza);
+
+            if (destino == TxtNumCuil)
+                return PrepararOcrCuil(crudo, confianza);
+
+            if (destino == TxtFechaNac || destino == TxtFechaEmision || destino == TxtFechaVencimiento)
+                return PrepararOcrFecha(destino, crudo, confianza);
+
+            if (destino == TxtFuncionesCorporales)
+                return PrepararOcrCif(crudo, 'b', "Funciones corporales", confianza);
+
+            if (destino == TxtEstructurasCorporales)
+                return PrepararOcrCif(crudo, 's', "Estructuras corporales", confianza);
+
+            if (destino == TxtActividad_Particip)
+                return PrepararOcrCif(crudo, 'd', "Actividad y participación", confianza);
+
+            if (destino == TxtFactoresAmbientales)
+                return PrepararOcrCif(crudo, 'e', "Factores ambientales", confianza);
+
+            if (destino == TxtApellidoNombre)
+                return PrepararOcrTextoLibre(crudo, "Apellido y nombre", confianza, minimoCaracteres: 4);
+
+            if (destino == TxtDiagnostico)
+                return PrepararOcrDiagnostico(crudo, confianza);
+
+            if (destino == TxtOrientacion)
+                return PrepararOcrTextoLibre(crudo, "Orientación prestacional", confianza, minimoCaracteres: 5);
+
+            if (destino == CmbSexo)
+                return PrepararOcrSexo(crudo);
+
+            if (destino == CmbAcomapante)
+                return PrepararOcrSiNo(crudo);
+
+            return ResultadoAplicacionOcr.Rechazar("Campo destino no soportado para OCR.");
+        }
+
+
+
+        private ResultadoAplicacionOcr PrepararOcrNumeroCertificado(string textoOcr, float confianza)
+        {
+            string t = textoOcr.ToUpperInvariant();
+
+            t = t.Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("_", "-")
+                 .Replace(" ", "");
+
+            Match m = Regex.Match(
+                t,
+                @"ARG-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}",
+                RegexOptions.IgnoreCase);
+
+            if (!m.Success)
+                return ResultadoAplicacionOcr.Rechazar("El OCR no detectó un número de certificado válido.", t);
+
+            string cert = IndexadorCudService.NormalizarNumeroCertificado(m.Value);
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(cert);
+
+            if (!datos.EsValido)
+                return ResultadoAplicacionOcr.Rechazar(datos.Mensaje, cert);
+
+            return ResultadoAplicacionOcr.Ok(cert, "Número de certificado OCR válido.");
+        }
+        private ResultadoAplicacionOcr PrepararOcrDni(string textoOcr, float confianza)
+        {
+            string digitos = ExtraerDigitos(textoOcr);
+
+            if (digitos.Length > 8)
+            {
+                // Si vino un CUIL por error, intenta tomar DNI interno.
+                if (digitos.Length == 11)
+                    digitos = digitos.Substring(2, 8);
+                else
+                    digitos = digitos.Substring(digitos.Length - 8);
+            }
+
+            digitos = digitos.TrimStart('0');
+
+            ResultadoValidacion validacion = IndexadorCudService.ValidarDni(digitos, true);
+
+            if (!validacion.EsValido)
+                return ResultadoAplicacionOcr.Rechazar("El OCR no produjo un DNI válido.", digitos);
+
+            return ResultadoAplicacionOcr.Ok(digitos, "DNI OCR válido.");
+        }
+        private ResultadoAplicacionOcr PrepararOcrCuil(string textoOcr, float confianza)
+        {
+            string digitos = ExtraerDigitos(textoOcr);
+
+            if (digitos.Length > 11)
+                digitos = digitos.Substring(0, 11);
+
+            if (digitos.Length == 2)
+                return ResultadoAplicacionOcr.Ok(digitos, "Prefijo CUIL detectado. Se completará con DNI.");
+
+            ResultadoValidacion validacion = IndexadorCudService.ValidarCuil(digitos, TxtNumDNI.Text, true);
+
+            if (!validacion.EsValido)
+                return ResultadoAplicacionOcr.Rechazar(validacion.Mensaje, digitos);
+
+            return ResultadoAplicacionOcr.Ok(digitos, "CUIL OCR válido.");
+        }
+        private ResultadoAplicacionOcr PrepararOcrFecha(Control destino, string textoOcr, float confianza)
+        {
+            string fecha = ExtraerFechaProbable(destino, textoOcr);
+
+            if (string.IsNullOrWhiteSpace(fecha))
+                return ResultadoAplicacionOcr.Rechazar("El OCR no produjo una fecha reconocible.", textoOcr);
+
+            TipoFechaCud tipoFecha;
+
+            if (destino == TxtFechaNac)
+                tipoFecha = TipoFechaCud.Nacimiento;
+            else if (destino == TxtFechaEmision)
+                tipoFecha = TipoFechaCud.Emision;
+            else
+                tipoFecha = TipoFechaCud.Vencimiento;
+
+            fecha = IndexadorCudService.NormalizarFechaCud(fecha, tipoFecha);
+
+            ResultadoValidacion validacion;
+
+            if (destino == TxtFechaNac)
+            {
+                validacion = IndexadorCudService.ValidarFecha(
+                    fecha,
+                    "Fecha de nacimiento",
+                    true,
+                    false,
+                    new DateTime(1900, 1, 1),
+                    DateTime.Today);
+            }
+            else if (destino == TxtFechaEmision)
+            {
+                validacion = IndexadorCudService.ValidarFecha(
+                    fecha,
+                    "Fecha de emisión",
+                    true,
+                    false,
+                    new DateTime(1900, 1, 1),
+                    DateTime.Today.AddDays(1));
+            }
+            else
+            {
+                validacion = IndexadorCudService.ValidarFecha(
+                    fecha,
+                    "Fecha de vencimiento",
+                    true,
+                    true,
+                    new DateTime(1900, 1, 1),
+                    null);
+            }
+
+            if (!validacion.EsValido)
+                return ResultadoAplicacionOcr.Rechazar(validacion.Mensaje, fecha);
+
+            return ResultadoAplicacionOcr.Ok(fecha, "Fecha OCR válida.");
+        }
+
+
+        private ResultadoAplicacionOcr PrepararOcrCif(string textoOcr, char letraEsperada, string nombreCampo, float confianza)
+        {
+            string preparado = IndexadorCudService.PrepararTextoCifDesdeOcr(
+                textoOcr,
+                letraEsperada);
+
+            Debug.WriteLine("[OCR CIF] Campo: " + nombreCampo);
+            Debug.WriteLine("[OCR CIF] Letra esperada: " + letraEsperada);
+            Debug.WriteLine("[OCR CIF] Texto OCR crudo:");
+            Debug.WriteLine(textoOcr);
+            Debug.WriteLine("[OCR CIF] Texto preparado:");
+            Debug.WriteLine(preparado);
+
+            ResultadoValidacion validacion = IndexadorCudService.ValidarCodigosCif(
+                preparado,
+                letraEsperada,
+                nombreCampo,
+                true);
+
+            if (!validacion.EsValido)
+            {
+                Debug.WriteLine("[OCR CIF] Rechazado: " + validacion.Mensaje);
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no produjo códigos CIF válidos para " + nombreCampo + ".",
+                    preparado);
+            }
+
+            return ResultadoAplicacionOcr.Ok(preparado, "CIF OCR válido.");
+        }
+        private string PrepararTextoCifDesdeOcr(string textoOcr, char letraEsperada)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            string t = textoOcr.ToLowerInvariant();
+
+            t = t.Replace("\r", " ")
+                 .Replace("\n", " ")
+                 .Replace("\t", " ")
+                 .Replace(",", " ")
+                 .Replace(";", " ")
+                 .Replace("|", " ");
+
+            // Correcciones típicas OCR dentro de códigos.
+            t = t.Replace("o", "0")
+                 .Replace("z", "2")
+                 .Replace("i", "1")
+                 .Replace("l", "1");
+
+            // Para el primer caracter del código, forzamos la letra esperada
+            // si aparece un número parecido.
+            // Ejemplo funciones: 167.3 -> b67.3 o b167.3 según caso.
+            List<string> codigos = new List<string>();
+
+            string[] partes = Regex.Split(t, @"\s+");
+
+            foreach (string parte in partes)
+            {
+                string p = parte.Trim();
+
+                if (string.IsNullOrWhiteSpace(p))
+                    continue;
+
+                p = p.Replace("-", "");
+
+                if (p.Length == 0)
+                    continue;
+
+                if (p[0] != letraEsperada)
+                {
+                    // Caso común: OCR leyó b como 6, l, 1, etc.
+                    if (char.IsDigit(p[0]))
+                        p = letraEsperada + p;
+                    else
+                        continue;
+                }
+
+                // Dejamos solo letra esperada, números, punto y +
+                string limpio = new string(
+                    p.Where(c => c == letraEsperada || char.IsDigit(c) || c == '.' || c == '+').ToArray());
+
+                if (!string.IsNullOrWhiteSpace(limpio))
+                    codigos.Add(limpio);
+            }
+
+            return IndexadorCudService.NormalizarCodigosCif(string.Join(" ", codigos));
+        }
+        private ResultadoAplicacionOcr PrepararOcrDiagnostico(string textoOcr, float confianza)
+        {
+            string t = LimpiarDiagnosticoDesdeOcr(textoOcr);
+
+            Debug.WriteLine("[OCR DIAGNOSTICO] Texto OCR crudo:");
+            Debug.WriteLine(textoOcr);
+            Debug.WriteLine("[OCR DIAGNOSTICO] Texto limpio:");
+            Debug.WriteLine(t);
+
+            if (string.IsNullOrWhiteSpace(t))
+                return ResultadoAplicacionOcr.Rechazar("El OCR no detectó texto útil para Diagnóstico.");
+
+            if (t.Length < 3)
+                return ResultadoAplicacionOcr.Rechazar("El texto OCR para Diagnóstico es demasiado corto.", t);
+
+            // Mismo criterio bajo que venías usando para texto libre.
+            if (confianza < 0.25f)
+            {
+                return ResultadoAplicacionOcr.Rechazar(
+                    "Confianza OCR muy baja para Diagnóstico. Revise el recorte o amplíe la selección.",
+                    t);
+            }
+
+            return ResultadoAplicacionOcr.Ok(t, "Diagnóstico OCR aceptado.");
+        }
+        private string LimpiarDiagnosticoDesdeOcr(string textoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            string texto = textoOcr.Replace("\r\n", "\n")
+                                   .Replace("\r", "\n");
+
+            string[] lineas = texto.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            List<string> lineasUtiles = new List<string>();
+
+            foreach (string lineaOriginal in lineas)
+            {
+                string linea = lineaOriginal.Trim();
+
+                if (string.IsNullOrWhiteSpace(linea))
+                    continue;
+
+                linea = linea.Replace("—", "-")
+                             .Replace("–", "-")
+                             .Replace("_", " ")
+                             .Replace("¬", " ")
+                             .Replace("°", " ");
+
+                linea = Regex.Replace(linea, @"[-]{2,}", " ");
+                linea = Regex.Replace(linea, @"\s+", " ").Trim();
+
+                if (string.IsNullOrWhiteSpace(linea))
+                    continue;
+
+                if (EsLineaRuidoDiagnosticoOcr(linea))
+                {
+                    Debug.WriteLine("[OCR DIAGNOSTICO] Línea descartada por ruido: " + linea);
+                    continue;
+                }
+
+                lineasUtiles.Add(linea);
+            }
+
+            string resultado = string.Join(" ", lineasUtiles);
+
+            resultado = resultado.Replace("'", "");
+            resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
+
+            // Limpieza final de separadores colgados al principio o al final.
+            resultado = Regex.Replace(resultado, @"^[\-\.:;, ]+", "").Trim();
+            resultado = Regex.Replace(resultado, @"[\-\.:;, ]+$", "").Trim();
+
+            return resultado;
+        }
+
+        private bool EsLineaRuidoDiagnosticoOcr(string linea)
+        {
+            if (string.IsNullOrWhiteSpace(linea))
+                return true;
+
+            string l = linea.Trim();
+
+            // Líneas hechas solo de separadores.
+            if (Regex.IsMatch(l, @"^[\-\._=~:,;|\\/ ]+$"))
+                return true;
+
+            string soloLetrasNumeros = Regex.Replace(l, @"[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]", "");
+
+            if (string.IsNullOrWhiteSpace(soloLetrasNumeros))
+                return true;
+
+            // Caso del log: "rs".
+            // También descarta residuos tipo "fs", "rn", "ll", etc.
+            // No descarta siglas con vocales, por ejemplo TEA.
+            if (soloLetrasNumeros.Length <= 3 &&
+                !Regex.IsMatch(soloLetrasNumeros, @"[aeiouáéíóúAEIOUÁÉÍÓÚ]") &&
+                !Regex.IsMatch(soloLetrasNumeros, @"\d"))
+            {
+                return true;
+            }
+
+            // Líneas muy cortas con solo una letra o número suelto.
+            if (soloLetrasNumeros.Length == 1)
+                return true;
+
+            return false;
+        }
+
+
+
+        private ResultadoAplicacionOcr PrepararOcrTextoLibre(
+    string textoOcr,
+    string nombreCampo,
+    float confianza,
+    int minimoCaracteres)
+        {
+            string t = IndexadorCudService.NormalizarTextoLibre(textoOcr);
+
+            t = LimpiarRuidoTextoLibreOcr(t);
+
+            if (string.IsNullOrWhiteSpace(t))
+                return ResultadoAplicacionOcr.Rechazar("El OCR no detectó texto útil para " + nombreCampo + ".");
+
+            if (t.Length < minimoCaracteres)
+                return ResultadoAplicacionOcr.Rechazar("El texto OCR para " + nombreCampo + " es demasiado corto.", t);
+
+            // Umbral bajo porque Tesseract puede dar confianza baja en texto correcto.
+            if (confianza < 0.25f)
+            {
+                return ResultadoAplicacionOcr.Rechazar(
+                    "Confianza OCR muy baja para " + nombreCampo + ". Revise el recorte o amplíe la selección.",
+                    t);
+            }
+
+            if (nombreCampo == "Apellido y nombre")
+                t = IndexadorCudService.NormalizarNombreApellido(t);
+
+            if (nombreCampo == "Orientación prestacional")
+                t = IndexadorCudService.NormalizarOrientacion(t);
+
+            return ResultadoAplicacionOcr.Ok(t, nombreCampo + " OCR aceptado.");
+        }
+        private string LimpiarRuidoTextoLibreOcr(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.Trim();
+
+            t = t.Replace("—", " ")
+                 .Replace("_", " ")
+                 .Replace("¬", " ")
+                 .Replace("°", " ");
+
+            t = Regex.Replace(t, @"[-_]{3,}", " ");
+            t = Regex.Replace(t, @"\s+", " ");
+
+            return t.Trim();
+        }
+        private ResultadoAplicacionOcr PrepararOcrSexo(string textoOcr)
+        {
+            string t = IndexadorCudService.NormalizarSexo(textoOcr);
+
+            if (t == "FEMENINO" || t == "MASCULINO" || t == "X" || t == "NO ESPECIFICA")
+                return ResultadoAplicacionOcr.Ok(t);
+
+            return ResultadoAplicacionOcr.Rechazar("El OCR no detectó un valor válido para Sexo.", textoOcr);
+        }
+
+        private ResultadoAplicacionOcr PrepararOcrSiNo(string textoOcr)
+        {
+            string valor = ExtraerSiNoDesdeOcr(textoOcr);
+
+            Debug.WriteLine("[OCR SI/NO] Texto OCR crudo:");
+            Debug.WriteLine(textoOcr);
+            Debug.WriteLine("[OCR SI/NO] Valor detectado: " + valor);
+
+            if (valor == "SI" || valor == "NO")
+                return ResultadoAplicacionOcr.Ok(valor, "Acompañante OCR válido.");
+
+            return ResultadoAplicacionOcr.Rechazar(
+                "El OCR no detectó SI/NO para acompañante.",
+                textoOcr);
+        }
+        private string ExtraerSiNoDesdeOcr(string textoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            string t = textoOcr.ToUpperInvariant();
+
+            t = t.Replace("Í", "I")
+                 .Replace("Ì", "I")
+                 .Replace("Ï", "I")
+                 .Replace("1", "I")
+                 .Replace("|", " ")
+                 .Replace(":", " ")
+                 .Replace(";", " ")
+                 .Replace(",", " ")
+                 .Replace(".", " ")
+                 .Replace("_", " ")
+                 .Replace("-", " ")
+                 .Replace("—", " ")
+                 .Replace("–", " ")
+                 .Replace("\"", " ")
+                 .Replace("“", " ")
+                 .Replace("”", " ")
+                 .Replace("'", " ");
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            // Busca SI/SÍ o NO como palabra aislada.
+            // Esto evita tomar "SI" dentro de palabras más largas.
+            Match m = Regex.Match(t, @"\b(SI|NO)\b", RegexOptions.IgnoreCase);
+
+            if (m.Success)
+                return m.Value.ToUpperInvariant();
+
+            return string.Empty;
+        }
+
+        private string ExtraerDigitos(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            return new string(texto.Where(char.IsDigit).ToArray());
+        }
+
+        private string ExtraerFechaProbable(Control destino, string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.Trim();
+
+            Debug.WriteLine("[OCR FECHA] Texto recibido en extractor:");
+            Debug.WriteLine(t);
+
+            t = t.Replace("O", "0")
+                 .Replace("o", "0")
+                 .Replace("I", "1")
+                 .Replace("l", "1")
+                 .Replace("|", "1")
+                 .Replace(":", "/")
+                 .Replace("-", "/")
+                 .Replace(".", "/");
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            Debug.WriteLine("[OCR FECHA] Texto normalizado para búsqueda:");
+            Debug.WriteLine(t);
+
+            // ==========================================================
+            // 1) Fecha completa directa:
+            // 10/05/2028
+            // 10-05-2028 ya llega como 10/05/2028
+            // ==========================================================
+            Match mSeparada = Regex.Match(t, @"\b\d{1,2}/\d{1,2}/\d{4}\b");
+
+            if (mSeparada.Success)
+            {
+                Debug.WriteLine("[OCR FECHA] Detectó fecha completa: " + mSeparada.Value);
+                return mSeparada.Value;
+            }
+
+            // ==========================================================
+            // 2) Fecha compacta:
+            // 20280510 o 10052028
+            // ==========================================================
+            Match mCompacta = Regex.Match(t, @"\b\d{8}\b");
+
+            if (mCompacta.Success)
+            {
+                Debug.WriteLine("[OCR FECHA] Detectó fecha compacta: " + mCompacta.Value);
+                return mCompacta.Value;
+            }
+
+            // ==========================================================
+            // 3) Fecha completa con espacios raros:
+            // Ejemplo: 1/ 05/2028
+            // Esto conviene evaluarlo ANTES que mes/año,
+            // porque si no podría tomar solo 05/2028.
+            // ==========================================================
+            Match mParcialConDia = Regex.Match(t, @"\b(\d{1,2})/\s*(\d{1,2})/\s*(\d{4})\b");
+
+            if (mParcialConDia.Success)
+            {
+                string fecha = mParcialConDia.Groups[1].Value.PadLeft(2, '0') + "/" +
+                               mParcialConDia.Groups[2].Value.PadLeft(2, '0') + "/" +
+                               mParcialConDia.Groups[3].Value;
+
+                Debug.WriteLine("[OCR FECHA] Detectó fecha con espacios raros: " + fecha);
+                return fecha;
+            }
+
+            // ==========================================================
+            // 4) Caso parcial con mes/año:
+            // ACTUALIZACIÓN: 05-2028
+            //
+            // Después de normalizar:
+            // ACTUALIZACIÓN/ 05/2028
+            //
+            // Regla:
+            // - Si hay número de certificado válido y mes/año coinciden,
+            //   usa el día del certificado.
+            //
+            // - Si NO hay certificado cargado o válido,
+            //   completa con día 01.
+            //
+            // - Si hay certificado válido pero mes/año NO coinciden,
+            //   rechaza para no inventar una fecha contradictoria.
+            // ==========================================================
+            Match mMesAnio = Regex.Match(t, @"\b(0?[1-9]|1[0-2])/\s*(\d{4})\b");
+
+            if (mMesAnio.Success)
+            {
+                int mesOcr = Convert.ToInt32(mMesAnio.Groups[1].Value);
+                int anioOcr = Convert.ToInt32(mMesAnio.Groups[2].Value);
+
+                Debug.WriteLine("[OCR FECHA] Detectó mes/año OCR: " + mesOcr.ToString("00") + "/" + anioOcr);
+
+                // Para fecha de nacimiento no completamos día automáticamente.
+                // Solo tiene sentido para emisión o vencimiento.
+                if (destino != TxtFechaEmision && destino != TxtFechaVencimiento)
+                {
+                    Debug.WriteLine("[OCR FECHA] Mes/año detectado, pero el campo no permite completar día automáticamente.");
+                    return string.Empty;
+                }
+
+                string fechaDesdeCertificado = ObtenerFechaDesdeCertificadoParaCampo(destino);
+
+                Debug.WriteLine("[OCR FECHA] Fecha desde certificado para este campo: " + fechaDesdeCertificado);
+
+                if (!string.IsNullOrWhiteSpace(fechaDesdeCertificado))
+                {
+                    DateTime fechaCert;
+
+                    if (DateTime.TryParseExact(
+                        fechaDesdeCertificado,
+                        "dd/MM/yyyy",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out fechaCert))
+                    {
+                        Debug.WriteLine("[OCR FECHA] Mes/año certificado: " + fechaCert.ToString("MM/yyyy"));
+
+                        if (fechaCert.Month == mesOcr && fechaCert.Year == anioOcr)
+                        {
+                            Debug.WriteLine("[OCR FECHA] Mes/año coincide. Se usa fecha completa del certificado: " + fechaDesdeCertificado);
+                            return fechaDesdeCertificado;
+                        }
+
+                        Debug.WriteLine("[OCR FECHA] Mes/año OCR no coincide con certificado. No se inventa día.");
+                        Debug.WriteLine("[OCR FECHA] OCR: " + mesOcr.ToString("00") + "/" + anioOcr);
+                        Debug.WriteLine("[OCR FECHA] Certificado: " + fechaCert.ToString("MM/yyyy"));
+
+                        return string.Empty;
+                    }
+
+                    Debug.WriteLine("[OCR FECHA] No se pudo interpretar la fecha del certificado.");
+                }
+
+                // ======================================================
+                // Si no hay certificado válido, usamos día 01.
+                // Ejemplo:
+                // ACTUALIZACIÓN: 05-2028 -> 01/05/2028
+                // ======================================================
+                string fechaConDiaPrimero =
+                    "01/" + mesOcr.ToString("00") + "/" + anioOcr;
+
+                Debug.WriteLine("[OCR FECHA] No hay certificado válido. Se completa con primer día del mes: " + fechaConDiaPrimero);
+
+                return fechaConDiaPrimero;
+            }
+
+            Debug.WriteLine("[OCR FECHA] No se detectó ningún patrón de fecha.");
+            return string.Empty;
+        }
+
+        private string ObtenerFechaDesdeCertificadoParaCampo(Control destino)
+        {
+            DatosNumeroCertificadoCud datos =
+                IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+
+            if (datos == null || !datos.EsValido)
+                return string.Empty;
+
+            if (destino == TxtFechaEmision)
+                return datos.FechaEmision;
+
+            if (destino == TxtFechaVencimiento)
+                return datos.FechaVencimiento;
+
+            return string.Empty;
+        }
+
 
         private void TxtNumeCert_KeyPress(object sender, KeyPressEventArgs e)
         {
@@ -2071,34 +3477,233 @@ namespace Indexador_GCBA_
             ControlCarga_KeyDownCud(sender, e);
         }
 
-        private void txtMes_Nacimiento_TextChanged(object sender, EventArgs e)
-        {
-            // Sin lógica. Stub para compatibilidad con designer.
-        }
 
-        private void txtMes_Inscripcion_TextChanged(object sender, EventArgs e)
-        {
-            // Sin lógica. Stub para compatibilidad con designer.
-        }
-
-        private void txtSexo_Nacido_TextChanged(object sender, EventArgs e)
-        {
-            // Sin lógica. Stub para compatibilidad con designer.
-        }
 
         private void txtNombre_Madre_TabStopChanged(object sender, EventArgs e)
         {
             btnGrabar.Focus();
         }
 
-        private void TxtNumeCert_MouseClick(object sender, MouseEventArgs e)
+        private class ResultadoAplicacionOcr
         {
-            // Sin lógica.
+            public bool Aceptado { get; set; }
+            public string TextoPreparado { get; set; }
+            public string Mensaje { get; set; }
+
+            public static ResultadoAplicacionOcr Ok(string texto, string mensaje = "")
+            {
+                return new ResultadoAplicacionOcr
+                {
+                    Aceptado = true,
+                    TextoPreparado = texto,
+                    Mensaje = mensaje
+                };
+            }
+
+            public static ResultadoAplicacionOcr Rechazar(string mensaje, string texto = "")
+            {
+                return new ResultadoAplicacionOcr
+                {
+                    Aceptado = false,
+                    TextoPreparado = texto,
+                    Mensaje = mensaje
+                };
+            }
         }
 
-        private void groupBox11_Enter(object sender, EventArgs e)
+        private bool ClickDentroDelCuadranteOcr(Point punto)
         {
-            // Sin lógica.
+            if (_rectanguloSeleccionVistaOcr == Rectangle.Empty)
+                return false;
+
+            if (_estadoCuadranteOcr == EstadoCuadranteOcr.Ninguno)
+                return false;
+
+            Rectangle zonaClick = _rectanguloSeleccionVistaOcr;
+            zonaClick.Inflate(6, 6);
+
+            return zonaClick.Contains(punto);
+        }
+        private bool CuadranteOcrTieneTamanioValido(Rectangle rect)
+        {
+            return rect.Width >= MIN_ANCHO_CUADRANTE_OCR &&
+                   rect.Height >= MIN_ALTO_CUADRANTE_OCR;
+        }
+        private Rectangle LimitarRectanguloAlAreaImagenVisible(Rectangle rect)
+        {
+            Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+            if (areaImagen == Rectangle.Empty)
+                return Rectangle.Empty;
+
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return Rectangle.Empty;
+
+            Rectangle interseccion = Rectangle.Intersect(rect, areaImagen);
+
+            if (interseccion.Width <= 0 || interseccion.Height <= 0)
+                return Rectangle.Empty;
+
+            int ancho = Math.Min(rect.Width, areaImagen.Width);
+            int alto = Math.Min(rect.Height, areaImagen.Height);
+
+            int x = rect.X;
+            int y = rect.Y;
+
+            if (x < areaImagen.Left)
+                x = areaImagen.Left;
+
+            if (y < areaImagen.Top)
+                y = areaImagen.Top;
+
+            if (x + ancho > areaImagen.Right)
+                x = areaImagen.Right - ancho;
+
+            if (y + alto > areaImagen.Bottom)
+                y = areaImagen.Bottom - alto;
+
+            return new Rectangle(x, y, ancho, alto);
+        }
+        private void OcultarCuadranteOcr()
+        {
+            _estadoCuadranteOcr = EstadoCuadranteOcr.Ninguno;
+
+            _seleccionandoCuadranteOcr = false;
+            _moviendoCuadranteSugeridoOcr = false;
+
+            _rectanguloSeleccionVistaOcr = Rectangle.Empty;
+            _puntoInicioCuadranteOcr = Point.Empty;
+            _offsetMovimientoCuadranteOcr = Point.Empty;
+
+            if (pictureBox1 != null)
+                pictureBox1.Invalidate();
+        }
+
+
+
+        private void LimpiarCampoCud(Control control)
+        {
+            if (control == null)
+                return;
+
+            _cargandoDatosCud = true;
+
+            TextBox txt = control as TextBox;
+            if (txt != null)
+            {
+                txt.Clear();
+            }
+
+            ComboBox cmb = control as ComboBox;
+            if (cmb != null)
+            {
+                if (cmb.Items.Count > 0)
+                    cmb.SelectedIndex = 0;
+                else
+                    cmb.Text = string.Empty;
+            }
+
+            _cargandoDatosCud = false;
+
+            // Limpia marca visual/error sin disparar validación obligatoria.
+            control.BackColor = _colorOk;
+            _erroresCud.SetError(control, string.Empty);
+            _toolTipCud.SetToolTip(control, string.Empty);
+
+            control.Focus();
+
+            TextBox txtFoco = control as TextBox;
+            if (txtFoco != null)
+            {
+                txtFoco.SelectionStart = 0;
+                txtFoco.SelectionLength = 0;
+            }
+
+            ComboBox cmbFoco = control as ComboBox;
+            if (cmbFoco != null)
+            {
+                cmbFoco.SelectionStart = 0;
+                cmbFoco.SelectionLength = 0;
+            }
+
+            // Como vuelve el foco al campo, dejamos activo el destino OCR.
+            _controlDestinoOcrActivo = control;
+
+            // Si ya implementaste el cuadrante sugerido por foco,
+            // esto lo vuelve a mostrar para ese campo.
+            MostrarCuadranteSugeridoParaControl(control);
+
+            Debug.WriteLine("[LIMPIAR CAMPO CUD] Campo limpiado: " + control.Name);
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtDiagnostico);
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtFuncionesCorporales);
+        }
+
+        private void button5_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtEstructurasCorporales);
+        }
+
+        private void button6_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtActividad_Particip);
+        }
+
+        private void button7_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtFactoresAmbientales);
+        }
+
+        private void button8_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtApellidoNombre);
+        }
+
+        private void button9_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(CmbSexo);
+        }
+
+        private void button10_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtNumDNI);
+        }
+
+        private void button11_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtNumCuil);
+        }
+
+        private void button12_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtFechaNac);
+        }
+
+        private void button13_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtOrientacion);
+        }
+
+        private void button14_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtFechaVencimiento);
+        }
+
+        private void button15_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(CmbAcomapante);
+        }
+
+        private void button16_Click(object sender, EventArgs e)
+        {
+            LimpiarCampoCud(TxtFechaEmision);
         }
     }
 }
