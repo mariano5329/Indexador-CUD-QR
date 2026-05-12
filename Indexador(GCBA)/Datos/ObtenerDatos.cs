@@ -1,251 +1,233 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.IO; // Manejo de Archivos
-using System.Windows.Forms; // Manejo de Formularios de Windows
-using Indexador_GCBA_.Negocio;
-using System.Data.OleDb;
 using System.Data;
-using System.Data.SqlClient;
+using System.Data.OleDb;
 using System.Diagnostics;
+using System.IO;
 
 namespace Indexador_GCBA_.Datos
 {
-    class ObtenerDatos
+    public class ObtenerDatos
     {
+        // ==========================================================
+        // HELPERS
+        // ==========================================================
 
-       
-     
-        public DataTable ConsultaOCR(string pruta)
+        private static object ValorTexto(string valor)
         {
-            OleDbConnection conexion1 = ConexionAccess.ObtenerConexion1();
-            OleDbCommand comando = conexion1.CreateCommand();
-            DataTable dt = new DataTable();
+            if (string.IsNullOrWhiteSpace(valor))
+                return DBNull.Value;
 
-            String query = "SELECT * From  TD_FICHASTOPOGRAFICAS where ruta = '" + pruta + "'";
+            return valor.Trim();
+        }
+
+        private static void LogError(string metodo, Exception ex)
+        {
+            Debug.WriteLine("[ObtenerDatos][ERROR] " + metodo);
+            Debug.WriteLine(ex.ToString());
 
             try
             {
-                conexion1.Open();
-                OleDbDataAdapter oda = new OleDbDataAdapter(query, conexion1);
-                oda.Fill(dt);
-                return (dt);
+                File.AppendAllText(
+                    "error_log.txt",
+                    DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss") +
+                    " - Error en " + metodo + ": " +
+                    ex.ToString() + Environment.NewLine);
             }
             catch
             {
-                throw;
+                // No cortar si falla el log.
             }
-            finally
-            {
-                if (conexion1 != null)
-                {
-                    conexion1.Close();
-                }
-            }
-
         }
-      
-        public DataTable editaracta (string pimagen)
+
+        private DataTable EjecutarConsultaDataTable(string sql, params OleDbParameter[] parametros)
         {
-            System.Data.SqlClient.SqlConnection conexion2 = ConexionAccess.ObtenerConexion2();
-            SqlCommand comando = conexion2.CreateCommand();
             DataTable dt = new DataTable();
 
-            String query = "SELECT * From  Acta_de_Nacimiento where PAGE_IMAGES = '" + pimagen + "'";
-          
-            try
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
             {
-                conexion2.Open();
-                SqlDataAdapter oda = new SqlDataAdapter(query, conexion2);
-                oda.Fill(dt);
-                return (dt);
-            }
-            catch
-            {
-                throw;
-            }
-            finally
-            {
-                if (conexion2 != null)
+                oCom.CommandText = sql;
+                oCom.CommandType = CommandType.Text;
+
+                if (parametros != null && parametros.Length > 0)
+                    oCom.Parameters.AddRange(parametros);
+
+                using (OleDbDataAdapter da = new OleDbDataAdapter(oCom))
                 {
-                    conexion2.Close();
+                    oCon.Open();
+                    da.Fill(dt);
                 }
             }
 
+            return dt;
         }
-        //public DataTable seleccionartodosql()
-        //{
-        //    System.Data.SqlClient.SqlConnection conexion2 = ConexionAccess.ObtenerConexion2();
-        //    SqlCommand comando = conexion2.CreateCommand();
-        //    DataTable dt = new DataTable();
 
-        //    String query = "SELECT * From  Acta_de_Nacimiento ";
+        // ==========================================================
+        // CUD - CONSULTAS PRINCIPALES
+        // ==========================================================
 
-        //    try
-        //    {
-        //        conexion2.Open();
-        //        SqlDataAdapter oda = new SqlDataAdapter(query, conexion2);
-        //        oda.Fill(dt);
-        //        return (dt);
-        //    }
-        //    catch
-        //    {
-        //        throw;
-        //    }
-        //    finally
-        //    {
-        //        if (conexion2 != null)
-        //        {
-        //            conexion2.Close();
-        //        }
-        //    }
+        public DataTable ObtenerCudPorId(int idCud)
+        {
+            try
+            {
+                string sql = @"
+SELECT *
+FROM [TD_CUD]
+WHERE [Id] = ?";
 
-        //}
+                OleDbParameter p1 = new OleDbParameter("?", OleDbType.Integer);
+                p1.Value = idCud;
 
+                return EjecutarConsultaDataTable(sql, p1);
+            }
+            catch (Exception ex)
+            {
+                LogError("ObtenerCudPorId", ex);
+                throw;
+            }
+        }
 
+        public DataTable ObtenerCudPorRutaSalida(string rutaSalida)
+        {
+            try
+            {
+                string sql = @"
+SELECT TOP 1 *
+FROM [TD_CUD]
+WHERE [RutaSalida] = ?
+ORDER BY [Id] DESC";
+
+                OleDbParameter p1 = new OleDbParameter("?", OleDbType.VarWChar);
+                p1.Value = ValorTexto(rutaSalida);
+
+                return EjecutarConsultaDataTable(sql, p1);
+            }
+            catch (Exception ex)
+            {
+                LogError("ObtenerCudPorRutaSalida", ex);
+                throw;
+            }
+        }
+
+        public DataTable ObtenerCudPorNumeroCertificado(string numeroCertificado)
+        {
+            try
+            {
+                string sql = @"
+SELECT TOP 1 *
+FROM [TD_CUD]
+WHERE [NumeroCertificado] = ?
+ORDER BY [Id] DESC";
+
+                OleDbParameter p1 = new OleDbParameter("?", OleDbType.VarWChar);
+                p1.Value = ValorTexto(numeroCertificado);
+
+                return EjecutarConsultaDataTable(sql, p1);
+            }
+            catch (Exception ex)
+            {
+                LogError("ObtenerCudPorNumeroCertificado", ex);
+                throw;
+            }
+        }
+
+        public int ConsultaCudVerificadoPorRutaEntrada(string rutaEntrada)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1 [Id]
+FROM [TD_CUD]
+WHERE [RutaEntrada] = ?
+  AND ([Estado] = 'INDEXADO' OR [Estado] = 'MODIFICADO' OR [Estado] = 'VERIFICADO')";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaEntrada);
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    return resultado == null || resultado == DBNull.Value ? 0 : 1;
+                }
+                catch (Exception ex)
+                {
+                    LogError("ConsultaCudVerificadoPorRutaEntrada", ex);
+                    throw;
+                }
+            }
+        }
+
+        public int ConsultaCudVerificadoPorArchivoEntrada(string caja, string archivoEntrada)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1 [Id]
+FROM [TD_CUD]
+WHERE [Caja] = ?
+  AND [ArchivoEntrada] = ?
+  AND ([Estado] = 'INDEXADO' OR [Estado] = 'MODIFICADO' OR [Estado] = 'VERIFICADO')";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(caja);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(archivoEntrada);
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    return resultado == null || resultado == DBNull.Value ? 0 : 1;
+                }
+                catch (Exception ex)
+                {
+                    LogError("ConsultaCudVerificadoPorArchivoEntrada", ex);
+                    throw;
+                }
+            }
+        }
+
+        // ==========================================================
+        // LOTES
+        // Este método reemplaza el anterior, pero parametrizado.
+        // ==========================================================
 
         public string Consultaloteasignado(string pruta)
         {
-            OleDbConnection conexion1 = ConexionAccess.ObtenerConexion1();
-            OleDbCommand comando = conexion1.CreateCommand();
-
-            try
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
             {
-                comando.CommandText = $"SELECT DSUSUARIO FROM TD_LOTE WHERE dsrutalote = '{pruta}' ";
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1 [DSUSUARIO]
+FROM [TD_LOTE]
+WHERE [DSRUTALOTE] = ?
+ORDER BY [fecha] DESC";
 
-              
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(pruta);
 
-                conexion1.Open();
-                comando.CommandType = CommandType.Text;
+                    oCon.Open();
 
-                object usuario = comando.ExecuteScalar();
+                    object usuario = oCom.ExecuteScalar();
 
-                return usuario?.ToString() ?? "";
-            }
-            catch (Exception ex)
-            {
-                Debug.Print("Error en Consultaloteasignado: " + ex.Message);
-                Console.WriteLine("Error en Consultaloteasignado: " + ex.Message);
-                throw;
-            }
-            finally
-            {
-                conexion1?.Close();
+                    return usuario == null || usuario == DBNull.Value
+                        ? string.Empty
+                        : usuario.ToString();
+                }
+                catch (Exception ex)
+                {
+                    LogError("Consultaloteasignado", ex);
+                    throw;
+                }
             }
         }
 
-        public int Consultaactaverificada(string pruta)
-        {
-            OleDbConnection conexion1 = ConexionAccess.ObtenerConexion1();
-            OleDbCommand comando = conexion1.CreateCommand();
-
-            try
-            {
-                comando.CommandText = $"SELECT imagen FROM TD_ACTAS WHERE ruta = '{pruta}' AND ESTADO = 'VERIFICADA'";
-
-             
-
-                conexion1.Open();
-                comando.CommandType = CommandType.Text;
-
-                object resultado = comando.ExecuteScalar();
-
-                return resultado != null ? 1 : 0;
-            }
-            catch (Exception ex)
-            {
-                Debug.Print("Error en Consultaactaverificada: " + ex.Message);
-                Console.WriteLine("Error en Consultaactaverificada: " + ex.Message);
-                throw;
-            }
-            finally
-            {
-                conexion1?.Close();
-            }
-        }
-    
-    public int Consultaficha(string pruta)
-        {
-            OleDbConnection conexion1 = ConexionAccess.ObtenerConexion1();
-            OleDbCommand comando = conexion1.CreateCommand();
-
-
-            try
-            {
-                comando.CommandText = string.Format("SELECT nFicha From  TD_FICHASTOPOGRAFICAS where ruta = '" + pruta + "'");
-
-                conexion1.Open();
-                comando.CommandType = CommandType.Text;
-
-
-
-                object nficha = comando.ExecuteScalar();
-
-                if (DBNull.Value.Equals(nficha))
-                {
-                    return 0;
-                }
-                else
-                {
-                    return Convert.ToInt32(nficha);
-                }
-
-
-            }
-            catch
-            {
-                throw;
-            }
-            finally
-            {
-                if (conexion1 != null)
-                {
-                    conexion1.Close();
-                }
-            }
-
-        }
-        public int Consultaimagenverificada(string pruta)
-        {
-            OleDbConnection conexion1 = ConexionAccess.ObtenerConexion1();
-            OleDbCommand comando = conexion1.CreateCommand();
-
-
-            try
-            {
-                comando.CommandText = string.Format("SELECT imagen From  TD_FICHASTOPOGRAFICAS where ruta = '" + pruta + "' and ESTADO = 'VERIFICADA'");
-
-                conexion1.Open();
-                comando.CommandType = CommandType.Text;
-
-
-
-                object usuario = comando.ExecuteScalar();
-
-                if (usuario == null)
-                {
-                    return 0;
-                }
-                else
-                {
-                    return 1;
-                }
-            }
-            catch
-            {
-                throw;
-            }
-            finally
-            {
-                if (conexion1 != null)
-                {
-                    conexion1.Close();
-                }
-            }
-
-        }
-
+     
+  
     }
 }

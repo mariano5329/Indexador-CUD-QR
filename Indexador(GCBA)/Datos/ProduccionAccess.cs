@@ -1,400 +1,578 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Data;
 using System.Data.OleDb;
-using Indexador_GCBA_.Negocio;
-using Indexador_GCBA_.Entidades;
-using static System.Collections.Specialized.BitVector32;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.Data.SqlClient;
 using System.Windows.Forms;
+using Indexador_GCBA_.Entidades;
 
 namespace Indexador_GCBA_.Datos
 {
     public class ProduccionAccess
     {
+        // ==========================================================
+        // HELPERS GENERALES ACCESS / OLEDB
+        // ==========================================================
 
-        public void Verificadas(string pnombre, string ptipo, string ptomo, string pacta, string pseccion, string paño, string pnumficha, string pnacimiento, string pficha, string pruta, string pimagen, string plote, string pIndexador)
+        private static object ValorTexto(string valor)
         {
-            using (var oCon = ConexionAccess.ObtenerConexion1())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = @"UPDATE TD_FICHASTOPOGRAFICAS 
-                                 SET Nombre = ?, TipoFicha = ?, Tomo = ?, Acta = ?, Seccion = ?, Anio = ?, NumFicha = ?, Nacimiento = ?, nFicha = ?, estado = 'VERIFICADA', 
-                                     imagen = ?, lote = ?, verificador = ?, fecha = ? 
-                                 WHERE ruta = ?";
+            if (string.IsNullOrWhiteSpace(valor))
+                return DBNull.Value;
 
-                    oCom.Parameters.AddWithValue("@Nombre", pnombre);
-                    oCom.Parameters.AddWithValue("@TipoFicha", ptipo);
-                    oCom.Parameters.AddWithValue("@Tomo", ptomo);
-                    oCom.Parameters.AddWithValue("@Acta", pacta);
-                    oCom.Parameters.AddWithValue("@Seccion", pseccion);
-                    oCom.Parameters.AddWithValue("@Anio", paño);
-                    oCom.Parameters.AddWithValue("@NumFicha", pnumficha);
-                    oCom.Parameters.AddWithValue("@Nacimiento", pnacimiento);
-                    oCom.Parameters.AddWithValue("@nFicha", pficha);
-                    oCom.Parameters.AddWithValue("@imagen", pimagen);
-                    oCom.Parameters.AddWithValue("@lote", plote);
-                    oCom.Parameters.AddWithValue("@verificador", pIndexador);
-                    oCom.Parameters.AddWithValue("@fecha", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
-                    oCom.Parameters.AddWithValue("@ruta", pruta);
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error en Verificadas: " + ex.Message);
-                }
-            }
+            return valor.Trim();
         }
 
-
-        public void VerificadasInsert(string pnombre, string ptipo, string ptomo, string pacta, string pseccion, string paño, string pnumficha, string pnacimiento, string pficha, string pruta, string pimagen, string plote, string pIndexador)
+        private static object ValorFechaDesdeTexto(string valor)
         {
-            using (var oCon = ConexionAccess.ObtenerConexion1())
-            using (var oCom = oCon.CreateCommand())
+            if (string.IsNullOrWhiteSpace(valor))
+                return DBNull.Value;
+
+            DateTime fecha;
+
+            if (DateTime.TryParseExact(
+                valor.Trim(),
+                "dd/MM/yyyy",
+                CultureInfo.GetCultureInfo("es-AR"),
+                DateTimeStyles.None,
+                out fecha))
             {
-                try
-                {
-                    oCom.CommandText = @"INSERT INTO TD_FICHASTOPOGRAFICAS 
-                                 (Nombre, TipoFicha, Tomo, Acta, Seccion, Anio, NumFicha, Nacimiento, nFicha, estado, imagen, lote, verificador, ruta, fecha) 
-                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VERIFICADA', ?, ?, ?, ?, ?)";
-
-                    oCom.Parameters.AddWithValue("@Nombre", pnombre);
-                    oCom.Parameters.AddWithValue("@TipoFicha", ptipo);
-                    oCom.Parameters.AddWithValue("@Tomo", ptomo);
-                    oCom.Parameters.AddWithValue("@Acta", pacta);
-                    oCom.Parameters.AddWithValue("@Seccion", pseccion);
-                    oCom.Parameters.AddWithValue("@Anio", paño);
-                    oCom.Parameters.AddWithValue("@NumFicha", pnumficha);
-                    oCom.Parameters.AddWithValue("@Nacimiento", pnacimiento);
-                    oCom.Parameters.AddWithValue("@nFicha", pficha);
-                    oCom.Parameters.AddWithValue("@imagen", pimagen);
-                    oCom.Parameters.AddWithValue("@lote", plote);
-                    oCom.Parameters.AddWithValue("@verificador", pIndexador);
-                    oCom.Parameters.AddWithValue("@ruta", pruta);
-                    oCom.Parameters.AddWithValue("@fecha", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error en VerificadasInsert: " + ex.Message);
-                }
+                return fecha;
             }
+
+            return DBNull.Value;
         }
 
-        public void FichasVerificadasRC(
-     string pnombre, string ptipo, string ptomo, string pacta, string pseccion,
-     string paño, string pnumficha, string pnacimiento, string pficha, string pimagen)
+        private static object ValorFechaHoraActual()
         {
-            using (var oCon = ConexionAccess.ObtenerConexion2())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = @"INSERT INTO FICHA_TOPOGRAFICA 
-                                 (Nombre, Nacimiento, Tomo, Acta, Seccion, Anio, nFicha, page_images) 
-                                 VALUES (@Nombre, @Nacimiento, @Tomo, @Acta, @Seccion, @Anio, @nFicha, @page_images )";
-
-                    oCom.Parameters.AddWithValue("@Nombre", pnombre);
-                    oCom.Parameters.AddWithValue("@Nacimiento", pnacimiento);
-                    oCom.Parameters.AddWithValue("@Tomo", ptomo);
-                    oCom.Parameters.AddWithValue("@Acta", pacta);
-                    oCom.Parameters.AddWithValue("@Seccion", pseccion);
-                    oCom.Parameters.AddWithValue("@Anio", paño);
-                    oCom.Parameters.AddWithValue("@nFicha", pficha);
-                    oCom.Parameters.AddWithValue("@page_images", pimagen);
-              
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error en FichasVerificadasRC: " + ex.Message);
-                }
-            }
+            return DateTime.Now;
         }
 
-        public void ActasVerificadasRC(
-    string Circunscripcion_Acta, string Tomo_Acta, int Dia_inscripcion, string Mes_Inscripcion, int Anio_Acta,
-    int Numero_Acta, int Año_Inscripcion, string Nombre_Nacido, string CNI_Numero, string Sexo_Nacido,
-    int Dia_Nacimiento, string Mes_Nacimiento, int Año_Nacimiento, string Nombre_Padre,
-    string Nombre_Madre, string pimagen)
+        private static void LogError(string metodo, Exception ex)
         {
-            using (var oCon = ConexionAccess.ObtenerConexion2())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = @"INSERT INTO Acta_de_Nacimiento 
-                                 (Cicrunscripcion_Acta, Tomo_Acta, Dia_inscripcion, Mes_Inscripcion, Anio_Acta, Numero_Acta, 
-                                  Anio_Inscripcion, Nombre_Nacido, CNI_Numero, Sexo_Nacido, Dia_Nacimiento, Mes_Nacimiento, 
-                                  Anio_Nacimiento, Nombre_Padre, Nombre_Madre, PAGE_IMAGES) 
-                                 VALUES (@Circunscripcion_Acta, @Tomo_Acta, @Dia_inscripcion, @Mes_Inscripcion, @Anio_Acta, 
-                                         @Numero_Acta, @Año_Inscripcion, @Nombre_Nacido, @CNI_Numero, @Sexo_Nacido, 
-                                         @Dia_Nacimiento, @Mes_Nacimiento, @Año_Nacimiento, @Nombre_Padre, @Nombre_Madre,
-                                         @pimagen)";
-
-                    oCom.Parameters.AddWithValue("@Circunscripcion_Acta", Circunscripcion_Acta);
-                    oCom.Parameters.AddWithValue("@Tomo_Acta", Tomo_Acta);
-                    oCom.Parameters.AddWithValue("@Dia_inscripcion", Dia_inscripcion);
-                    oCom.Parameters.AddWithValue("@Mes_Inscripcion", Mes_Inscripcion);
-                    oCom.Parameters.AddWithValue("@Anio_Acta", Anio_Acta);
-                    oCom.Parameters.AddWithValue("@Numero_Acta", Numero_Acta);
-                    oCom.Parameters.AddWithValue("@Año_Inscripcion", Año_Inscripcion);
-                    oCom.Parameters.AddWithValue("@Nombre_Nacido", Nombre_Nacido);
-                    oCom.Parameters.AddWithValue("@CNI_Numero", CNI_Numero);
-                    oCom.Parameters.AddWithValue("@Sexo_Nacido", Sexo_Nacido);
-                    oCom.Parameters.AddWithValue("@Dia_Nacimiento", Dia_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Mes_Nacimiento", Mes_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Año_Nacimiento", Año_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Nombre_Padre", Nombre_Padre);
-                    oCom.Parameters.AddWithValue("@Nombre_Madre", Nombre_Madre);
-                    oCom.Parameters.AddWithValue("@pimagen", pimagen);
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (OleDbException ex)
-                {
-                    MessageBox.Show("Error de base de datos: " + ex.Message + "\nPor favor, asegúrese de estar conectado a FortiCLIENT.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de base de datos en ActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    MessageBox.Show("Error de operación inválida: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de operación inválida en ActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error desconocido: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error desconocido en ActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-            }
-        }
-
-        public void EditarActasVerificadasRC(
-            string Circunscripcion_Acta, string Tomo_Acta, int Dia_inscripcion, string Mes_Inscripcion, int Anio_Acta,
-            int Numero_Acta, int Año_Inscripcion, string Nombre_Nacido, string CNI_Numero, string Sexo_Nacido,
-            int Dia_Nacimiento, string Mes_Nacimiento, int Año_Nacimiento, string Nombre_Padre,
-            string Nombre_Madre, string pimagen)
-        {
-            using (var oCon = ConexionAccess.ObtenerConexion2())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = @"UPDATE Acta_de_Nacimiento 
-                                 SET Cicrunscripcion_Acta = ?, Tomo_Acta = ?, Numero_Acta = ?, Anio_Acta = ?, 
-                                     Dia_inscripcion = ?, Mes_Inscripcion = ?, Anio_Inscripcion = ?, 
-                                     Nombre_Nacido = ?, CNI_Numero = ?, Sexo_Nacido = ?, 
-                                     Dia_Nacimiento = ?, Mes_Nacimiento = ?, Anio_Nacimiento = ?, 
-                                     Nombre_Padre = ?, Nombre_Madre = ?
-                                 WHERE PAGE_IMAGES = ?";
-
-                    oCom.Parameters.AddWithValue("@Circunscripcion_Acta", Circunscripcion_Acta);
-                    oCom.Parameters.AddWithValue("@Tomo_Acta", Tomo_Acta);
-                    oCom.Parameters.AddWithValue("@Numero_Acta", Numero_Acta);
-                    oCom.Parameters.AddWithValue("@Anio_Acta", Anio_Acta);
-                    oCom.Parameters.AddWithValue("@Dia_inscripcion", Dia_inscripcion);
-                    oCom.Parameters.AddWithValue("@Mes_Inscripcion", Mes_Inscripcion);
-                    oCom.Parameters.AddWithValue("@Anio_Inscripcion", Año_Inscripcion);
-                    oCom.Parameters.AddWithValue("@Nombre_Nacido", Nombre_Nacido);
-                    oCom.Parameters.AddWithValue("@CNI_Numero", CNI_Numero);
-                    oCom.Parameters.AddWithValue("@Sexo_Nacido", Sexo_Nacido);
-                    oCom.Parameters.AddWithValue("@Dia_Nacimiento", Dia_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Mes_Nacimiento", Mes_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Anio_Nacimiento", Año_Nacimiento);
-                    oCom.Parameters.AddWithValue("@Nombre_Padre", Nombre_Padre);
-                    oCom.Parameters.AddWithValue("@Nombre_Madre", Nombre_Madre);
-                    oCom.Parameters.AddWithValue("@pimagen", pimagen);
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (OleDbException ex)
-                {
-                    MessageBox.Show("Error de base de datos: " + ex.Message + "\nPor favor, asegúrese de estar conectado a FortiCLIENT.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de base de datos en EditarActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    MessageBox.Show("Error de operación inválida: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de operación inválida en EditarActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error desconocido: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error desconocido en EditarActasVerificadasRC: " + ex.ToString() + Environment.NewLine);
-                }
-            }
-        }
-
-
-
-
-        public void ActasNacimiento(
-            string Circunscripcion_Acta, string Tomo_Acta, int Numero_Acta, int Anio_Acta, int Dia_inscripcion, int Mes_Inscripcion, int Anio_Inscripcion,
-            string Nombre_Nacido, string CNI_Numero, string Sexo_Nacido, int Dia_Nacimiento, string Mes_Nacimiento, int Anio_Nacimiento,
-            string Nombre_Padre, string Nombre_Madre, string ruta, string pimagen, string plote, string pIndexador)
-        {
-            using (var oCon = ConexionAccess.ObtenerConexion1())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = @"INSERT INTO TD_ACTAS 
-                         (Circunscripcion_Acta, Tomo_Acta, Numero_Acta, Anio_Acta, Dia_inscripcion, Mes_Inscripcion, Año_Inscripcion,
-                          Nombre_Nacido, CNI_Numero, Sexo_Nacido, Dia_Nacimiento, Mes_Nacimiento, Año_Nacimiento,
-                          Nombre_Padre, Nombre_Madre, ruta, estado, imagen, lote, verificador, fecha) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VERIFICADA', ?, ?, ?, ?)";
-
-                    oCom.Parameters.AddWithValue("?", Circunscripcion_Acta); // Texto
-                    oCom.Parameters.AddWithValue("?", Tomo_Acta); // Texto
-                    oCom.Parameters.AddWithValue("?", Numero_Acta); // Número
-                    oCom.Parameters.AddWithValue("?", Anio_Acta); // Número
-                    oCom.Parameters.AddWithValue("?", Dia_inscripcion); // Número
-                    oCom.Parameters.AddWithValue("?", Mes_Inscripcion); // Número
-                    oCom.Parameters.AddWithValue("?", Anio_Inscripcion); // Número
-                    oCom.Parameters.AddWithValue("?", Nombre_Nacido); // Texto
-                    oCom.Parameters.AddWithValue("?", CNI_Numero); // Texto
-                    oCom.Parameters.AddWithValue("?", Sexo_Nacido); // Texto
-                    oCom.Parameters.AddWithValue("?", Dia_Nacimiento); // Número
-                    oCom.Parameters.AddWithValue("?", Mes_Nacimiento); // Texto
-                    oCom.Parameters.AddWithValue("?", Anio_Nacimiento); // Número
-                    oCom.Parameters.AddWithValue("?", Nombre_Padre); // Texto
-                    oCom.Parameters.AddWithValue("?", Nombre_Madre); // Texto
-                    oCom.Parameters.AddWithValue("?", ruta); // Texto
-                    oCom.Parameters.AddWithValue("?", pimagen); // Texto
-                    oCom.Parameters.AddWithValue("?", plote); // Texto
-                    oCom.Parameters.AddWithValue("?", pIndexador); // Texto
-                    oCom.Parameters.AddWithValue("?", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
-
-                    oCon.Open();
-                    oCom.ExecuteNonQuery();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error en ActasNacimiento: " + ex.Message);
-                }
-            }
-        }
-
-
-
-
-        public List<Entidades.Indexador> CargarListaIndexadores()
-        {
-            var oListaIndexadores = new List<Entidades.Indexador>();
-
-            using (var oCon = ConexionAccess.ObtenerConexion1())
-            using (var oCom = oCon.CreateCommand())
-            {
-                try
-                {
-                    oCom.CommandText = "SELECT IDINDEXADOR, DSNOMBRE FROM TD_INDEXADORES";
-                    Console.WriteLine("Abriendo conexión...");
-                    oCon.Open();
-                    Console.WriteLine("Conexión abierta.");
-
-                    using (var oLeer = oCom.ExecuteReader())
-                    {
-                        while (oLeer.Read())
-                        {
-                            oListaIndexadores.Add(new Entidades.Indexador
-                            {
-                                IdIndexador = oLeer.GetInt32(0),
-                                NombreIndexador = oLeer.GetString(1)
-                            });
-                        }
-                    }
-                }
-                catch (OleDbException ex)
-                {
-                    MessageBox.Show("Error de base de datos: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de base de datos en CargarListaIndexadores: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (InvalidOperationException ex)
-                {
-                    MessageBox.Show("Error de operación inválida: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error de operación inválida en CargarListaIndexadores: " + ex.ToString() + Environment.NewLine);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error desconocido: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    File.AppendAllText("error_log.txt", DateTime.Now + " - Error desconocido en CargarListaIndexadores: " + ex.ToString() + Environment.NewLine);
-                }
-            }
-
-            if (oListaIndexadores.Count == 0)
-            {
-                MessageBox.Show("No se encontraron indexadores.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-
-            return oListaIndexadores;
-        }
-
-
-
-        public void loteasignado(string pruta, string pusuario)
-        {
-            OleDbConnection oCon = ConexionAccess.ObtenerConexion1();
-            OleDbCommand oCom = oCon.CreateCommand();
+            Debug.WriteLine("[ProduccionAccess][ERROR] " + metodo);
+            Debug.WriteLine(ex.ToString());
 
             try
             {
-                oCom.CommandText = $"INSERT INTO TD_LOTE (DSRUTALOTE, DSUSUARIO, fecha) VALUES(@ruta, @usuario, @fecha)";
-                oCom.Parameters.AddWithValue("@ruta", pruta);
-                oCom.Parameters.AddWithValue("@usuario", pusuario);
-                oCom.Parameters.AddWithValue("@fecha", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"));
-
-                oCon.Open();
-                oCom.ExecuteNonQuery();
+                File.AppendAllText(
+                    "error_log.txt",
+                    DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss") +
+                    " - Error en " + metodo + ": " +
+                    ex.ToString() + Environment.NewLine);
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine("Error: " + ex.Message);
-            }
-            finally
-            {
-                oCon.Close();
+                // No cortar el flujo si falla el log.
             }
         }
 
-        public void CerrarLoteAsignado(string pruta, string pusuario)
+        // ==========================================================
+        // CUD - DUPLICADOS
+        // ==========================================================
+
+        public int BuscarIdCudExistente(
+            string numeroCertificado,
+            string dni,
+            string rutaEntrada,
+            string caja,
+            string archivoEntrada)
         {
-            using (var oCon = ConexionAccess.ObtenerConexion1())
-            using (var oCom = oCon.CreateCommand())
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
             {
                 try
                 {
-                    oCom.CommandText = "UPDATE TD_LOTE SET DSUSUARIO = ? WHERE DSRUTALOTE = ?";
-                    oCom.Parameters.AddWithValue("@usuario", pusuario + " (CERRADO)");
-                    oCom.Parameters.AddWithValue("@ruta", pruta);
+                    oCom.CommandText = @"
+SELECT TOP 1 [Id]
+FROM [TD_CUD]
+WHERE [NumeroCertificado] = ?
+   OR ([DNI] = ? AND [NumeroCertificado] = ?)
+   OR [RutaEntrada] = ?
+   OR ([Caja] = ? AND [ArchivoEntrada] = ?)
+ORDER BY [Id] DESC";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(numeroCertificado);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(dni);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(numeroCertificado);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaEntrada);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(caja);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(archivoEntrada);
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    if (resultado == null || resultado == DBNull.Value)
+                        return 0;
+
+                    return Convert.ToInt32(resultado);
+                }
+                catch (Exception ex)
+                {
+                    LogError("BuscarIdCudExistente", ex);
+                    throw;
+                }
+            }
+        }
+
+        public void RegistrarIndexacionDiaria(string nombreIndexador)
+        {
+            if (string.IsNullOrWhiteSpace(nombreIndexador))
+                return;
+
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCon.Open();
+
+                    // Primero buscamos la fecha última y el contador actual.
+                    oCom.CommandText = @"
+SELECT TOP 1 [FECHAULTIMAINDEX], [INDEXACIONDIARIA]
+FROM [TD_INDEXADORES]
+WHERE [DSNOMBRE] = ?";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = nombreIndexador.Trim();
+
+                    DateTime? fechaUltima = null;
+                    int cantidadActual = 0;
+
+                    using (OleDbDataReader dr = oCom.ExecuteReader())
+                    {
+                        if (dr.Read())
+                        {
+                            if (dr["FECHAULTIMAINDEX"] != DBNull.Value)
+                                fechaUltima = Convert.ToDateTime(dr["FECHAULTIMAINDEX"]);
+
+                            if (dr["INDEXACIONDIARIA"] != DBNull.Value)
+                                cantidadActual = Convert.ToInt32(dr["INDEXACIONDIARIA"]);
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+
+                    int nuevaCantidad;
+
+                    if (fechaUltima.HasValue && fechaUltima.Value.Date == DateTime.Today)
+                        nuevaCantidad = cantidadActual + 1;
+                    else
+                        nuevaCantidad = 1;
+
+                    using (OleDbCommand cmdUpdate = oCon.CreateCommand())
+                    {
+                        cmdUpdate.CommandText = @"
+UPDATE [TD_INDEXADORES]
+SET [FECHAULTIMAINDEX] = ?,
+    [INDEXACIONDIARIA] = ?
+WHERE [DSNOMBRE] = ?";
+
+                        cmdUpdate.Parameters.Add("?", OleDbType.Date).Value = DateTime.Now;
+                        cmdUpdate.Parameters.Add("?", OleDbType.Integer).Value = nuevaCantidad;
+                        cmdUpdate.Parameters.Add("?", OleDbType.VarWChar).Value = nombreIndexador.Trim();
+
+                        cmdUpdate.ExecuteNonQuery();
+                    }
+
+                    Debug.WriteLine("[INDEXADORES] Indexación diaria actualizada para: " + nombreIndexador);
+                    Debug.WriteLine("[INDEXADORES] Nueva cantidad diaria: " + nuevaCantidad);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[INDEXADORES][ERROR] RegistrarIndexacionDiaria");
+                    Debug.WriteLine(ex.ToString());
+
+                    // No tiro excepción para no romper el guardado del CUD.
+                    // Si el CUD se guardó bien, este contador es secundario.
+                }
+            }
+        }
+
+
+        public int ConsultaCudVerificadoPorRutaEntrada(string rutaEntrada)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1 [Id]
+FROM [TD_CUD]
+WHERE [RutaEntrada] = ?
+  AND ([Estado] = 'INDEXADO' OR [Estado] = 'MODIFICADO' OR [Estado] = 'VERIFICADO')";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaEntrada);
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    return resultado == null || resultado == DBNull.Value ? 0 : 1;
+                }
+                catch (Exception ex)
+                {
+                    LogError("ConsultaCudVerificadoPorRutaEntrada", ex);
+                    throw;
+                }
+            }
+        }
+
+        // ==========================================================
+        // CUD - INSERT
+        // ==========================================================
+
+        public int CertificadoCud(
+            string numeroCertificado,
+            string apellidoNombre,
+            string sexo,
+            string dni,
+            string cuil,
+            string fechaNacimiento,
+            string diagnostico,
+            string funcionesCorporales,
+            string estructurasCorporales,
+            string actividadParticipacion,
+            string factoresAmbientales,
+            string orientacionPrestacional,
+            string fechaEmision,
+            string fechaVencimiento,
+            string acompaniante,
+            string rutaEntrada,
+            string archivoEntrada,
+            string rutaSalida,
+            string caja,
+            string indexador,
+            string estado)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+INSERT INTO [TD_CUD]
+(
+    [Caja],
+    [ArchivoEntrada],
+    [RutaEntrada],
+    [RutaSalida],
+    [NumeroCertificado],
+    [ApellidoNombre],
+    [DNI],
+    [CUIL],
+    [Sexo],
+    [FechaNacimiento],
+    [Diagnostico],
+    [FuncionesCorporales],
+    [EstructurasCorporales],
+    [ActividadParticipacion],
+    [FactoresAmbientales],
+    [OrientacionPrestacional],
+    [FechaEmision],
+    [FechaVencimiento],
+    [Acompaniante],
+    [Indexador],
+    [Estado],
+    [Fecha Indexado],
+    [Fecha Auditado]
+)
+VALUES
+(
+    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+)";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(caja);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(archivoEntrada);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaEntrada);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaSalida);
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(numeroCertificado);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(apellidoNombre);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(dni);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(cuil);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(sexo);
+
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaNacimiento);
+
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(diagnostico);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(funcionesCorporales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(estructurasCorporales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(actividadParticipacion);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(factoresAmbientales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(orientacionPrestacional);
+
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaEmision);
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaVencimiento);
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(acompaniante);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(indexador);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(estado);
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = ValorFechaHoraActual();
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = DBNull.Value;
+
+                    Debug.WriteLine("[CUD INSERT] NumeroCertificado: " + numeroCertificado);
+                    Debug.WriteLine("[CUD INSERT] DNI: " + dni);
+                    Debug.WriteLine("[CUD INSERT] RutaEntrada: " + rutaEntrada);
+                    Debug.WriteLine("[CUD INSERT] RutaSalida: " + rutaSalida);
+
+                    oCon.Open();
+                    oCom.ExecuteNonQuery();
+
+                    using (OleDbCommand cmdId = oCon.CreateCommand())
+                    {
+                        cmdId.CommandText = "SELECT @@IDENTITY";
+                        object id = cmdId.ExecuteScalar();
+
+                        if (id == null || id == DBNull.Value)
+                            return 0;
+
+                        return Convert.ToInt32(id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError("CertificadoCud", ex);
+                    throw;
+                }
+            }
+        }
+
+        // ==========================================================
+        // CUD - UPDATE POR ID
+        // ==========================================================
+
+        public bool EditarCertificadoCudVerificado(
+            int idCud,
+            string numeroCertificado,
+            string apellidoNombre,
+            string sexo,
+            string dni,
+            string cuil,
+            string fechaNacimiento,
+            string diagnostico,
+            string funcionesCorporales,
+            string estructurasCorporales,
+            string actividadParticipacion,
+            string factoresAmbientales,
+            string orientacionPrestacional,
+            string fechaEmision,
+            string fechaVencimiento,
+            string acompaniante,
+            string rutaSalida,
+            string indexador,
+            string estado)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+UPDATE [TD_CUD]
+SET
+    [RutaSalida] = ?,
+    [NumeroCertificado] = ?,
+    [ApellidoNombre] = ?,
+    [DNI] = ?,
+    [CUIL] = ?,
+    [Sexo] = ?,
+    [FechaNacimiento] = ?,
+    [Diagnostico] = ?,
+    [FuncionesCorporales] = ?,
+    [EstructurasCorporales] = ?,
+    [ActividadParticipacion] = ?,
+    [FactoresAmbientales] = ?,
+    [OrientacionPrestacional] = ?,
+    [FechaEmision] = ?,
+    [FechaVencimiento] = ?,
+    [Acompaniante] = ?,
+    [Indexador] = ?,
+    [Estado] = ?,
+    [Fecha Auditado] = ?
+WHERE [Id] = ?";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaSalida);
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(numeroCertificado);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(apellidoNombre);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(dni);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(cuil);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(sexo);
+
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaNacimiento);
+
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(diagnostico);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(funcionesCorporales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(estructurasCorporales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(actividadParticipacion);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(factoresAmbientales);
+                    oCom.Parameters.Add("?", OleDbType.LongVarWChar).Value = ValorTexto(orientacionPrestacional);
+
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaEmision);
+                    oCom.Parameters.Add("?", OleDbType.DBDate).Value = ValorFechaDesdeTexto(fechaVencimiento);
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(acompaniante);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(indexador);
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(estado);
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = ValorFechaHoraActual();
+
+                    oCom.Parameters.Add("?", OleDbType.Integer).Value = idCud;
+
+                    Debug.WriteLine("[CUD UPDATE] Id: " + idCud);
+                    Debug.WriteLine("[CUD UPDATE] NumeroCertificado: " + numeroCertificado);
+                    Debug.WriteLine("[CUD UPDATE] DNI: " + dni);
+                    Debug.WriteLine("[CUD UPDATE] RutaSalida: " + rutaSalida);
+
+                    oCon.Open();
+
+                    int filas = oCom.ExecuteNonQuery();
+
+                    return filas > 0;
+                }
+                catch (Exception ex)
+                {
+                    LogError("EditarCertificadoCudVerificado", ex);
+                    throw;
+                }
+            }
+        }
+
+        // ==========================================================
+        // INDEXADORES
+        // Se conserva porque tu proyecto ya lo usa.
+        // ==========================================================
+
+        public List<Indexador> CargarListaIndexadores()
+        {
+            List<Indexador> lista = new List<Indexador>();
+
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT [IDINDEXADOR], [DSNOMBRE]
+FROM [TD_INDEXADORES]
+ORDER BY [DSNOMBRE]";
+
+                    oCon.Open();
+
+                    using (OleDbDataReader dr = oCom.ExecuteReader())
+                    {
+                        while (dr.Read())
+                        {
+                            Indexador item = new Indexador();
+
+                            item.IdIndexador = dr["IDINDEXADOR"] == DBNull.Value
+                                ? 0
+                                : Convert.ToInt32(dr["IDINDEXADOR"]);
+
+                            item.NombreIndexador = dr["DSNOMBRE"] == DBNull.Value
+                                ? string.Empty
+                                : dr["DSNOMBRE"].ToString();
+
+                            lista.Add(item);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError("CargarListaIndexadores", ex);
+
+                    MessageBox.Show(
+                        "Error al cargar indexadores: " + ex.Message,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+            }
+
+            return lista;
+        }
+
+        // ==========================================================
+        // LOTES
+        // Se conserva porque tu Form actual usa loteasignado y CerrarLoteAsignado.
+        // ==========================================================
+
+        public void loteasignado(string pruta, string pusuario)
+        {
+            if (string.IsNullOrWhiteSpace(pruta))
+                throw new Exception("No se puede asignar un lote sin ruta.");
+
+            if (string.IsNullOrWhiteSpace(pusuario))
+                throw new Exception("No se puede asignar un lote sin usuario/indexador.");
+
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+INSERT INTO [TD_LOTE]
+(
+    [DSRUTALOTE],
+    [DSUSUARIO],
+    [fecha]
+)
+VALUES
+(
+    ?,?,?
+)";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = pruta.Trim();
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = pusuario.Trim();
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = DateTime.Now;
+
+                    Debug.WriteLine("[LOTE] Asignando lote: " + pruta);
+                    Debug.WriteLine("[LOTE] Usuario: " + pusuario);
 
                     oCon.Open();
                     oCom.ExecuteNonQuery();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Error en CerrarLoteAsignado: " + ex.Message);
+                    Debug.WriteLine("[LOTE][ERROR] loteasignado");
+                    Debug.WriteLine(ex.ToString());
+                    throw;
                 }
             }
         }
 
 
+        public void CerrarLoteAsignado(string pruta, string pusuario)
+        {
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+UPDATE [TD_LOTE]
+SET [DSUSUARIO] = ?
+WHERE [DSRUTALOTE] = ?";
 
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(pusuario + " (CERRADO)");
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(pruta);
 
+                    Debug.WriteLine("[LOTE] Cerrando lote: " + pruta);
+                    Debug.WriteLine("[LOTE] Usuario cierre: " + pusuario);
 
-
+                    oCon.Open();
+                    oCom.ExecuteNonQuery();
+                }
+                catch (Exception ex)
+                {
+                    LogError("CerrarLoteAsignado", ex);
+                    throw;
+                }
+            }
+        }
     }
 }

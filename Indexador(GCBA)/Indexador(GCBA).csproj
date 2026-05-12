@@ -171,11 +171,11 @@
       <DependentUpon>FormUsuarios.cs</DependentUpon>
     </Compile>
     <Compile Include="Negocio\ConexionBD.cs" />
-    <Compile Include="Pantallas\FormActasDeNacimiento.cs">
+    <Compile Include="Pantallas\FormCopidis.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="Pantallas\FormActasDeNacimiento.Designer.cs">
-      <DependentUpon>FormActasDeNacimiento.cs</DependentUpon>
+    <Compile Include="Pantallas\FormCopidis.Designer.cs">
+      <DependentUpon>FormCopidis.cs</DependentUpon>
     </Compile>
     <Compile Include="Login.cs">
       <SubType>Form</SubType>
@@ -190,8 +190,8 @@
     <EmbeddedResource Include="FormUsuarios.resx">
       <DependentUpon>FormUsuarios.cs</DependentUpon>
     </EmbeddedResource>
-    <EmbeddedResource Include="Pantallas\FormActasDeNacimiento.resx">
-      <DependentUpon>FormActasDeNacimiento.cs</DependentUpon>
+    <EmbeddedResource Include="Pantallas\FormCopidis.resx">
+      <DependentUpon>FormCopidis.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Login.resx">
       <DependentUpon>Login.cs</DependentUpon>

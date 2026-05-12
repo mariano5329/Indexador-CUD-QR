@@ -35,7 +35,7 @@ namespace Indexador_GCBA_
                 Entidades.Indexador oIndexador = new Entidades.Indexador();
                 oIndexador = cboxUsuarios.SelectedItem as Entidades.Indexador;
 
-                FormActasDeNacimiento oFrmPrincipal = new FormActasDeNacimiento(oIndexador);                
+                FormCopidis oFrmPrincipal = new FormCopidis(oIndexador);                
 
                 this.Hide();
                 oFrmPrincipal.Show();
