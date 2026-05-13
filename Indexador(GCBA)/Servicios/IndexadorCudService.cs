@@ -418,6 +418,28 @@ namespace Indexador_GCBA_.Servicios
                  .Replace("|", " ")
                  .Replace(",", " ");
 
+            t = t.Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("−", "-")
+                 .Replace("_", "");
+
+            // Normaliza espacios alrededor de punto y signos ANTES de separar por espacios.
+            // Ej: e5801. +3 -> e5801.+3
+            // Ej: e5801. -3 -> e5801.-3
+            t = Regex.Replace(t, @"\s*\.\s*", ".");
+            t = Regex.Replace(t, @"\s*([+-])\s*", "$1");
+
+            // Corrige ruido típico OCR:
+            // e5801.-+3 -> e5801.+3
+            // e5801.+-3 -> e5801.-3
+            // e1101.-.+3 -> e1101.+3
+            t = t.Replace(".-+.", ".+")
+                 .Replace(".+-.", ".-")
+                 .Replace(".-+", ".+")
+                 .Replace(".+-", ".-")
+                 .Replace(".-.+", ".+")
+                 .Replace(".+.-", ".-");
+
             t = Regex.Replace(t, @"\s+", " ");
 
             string[] partes = t.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -432,48 +454,54 @@ namespace Indexador_GCBA_.Servicios
 
                 p = p.ToLowerInvariant();
 
-                p = p.Replace("—", "-")
-                     .Replace("–", "-")
-                     .Replace("_", "");
+                // Corrige 0e1201.+3 -> e1201.+3
+                // Corrige oe1201.+3 -> e1201.+3
+                p = Regex.Replace(p, @"^[0o]+(?=[bsde])", "");
 
                 // Corrige e.5801.+3 -> e5801.+3
                 p = Regex.Replace(p, @"^([bsde])\.(?=\d)", "$1");
 
-                // Corrige espacios alrededor del signo:
-                // e5801. +3 -> e5801.+3
-                // e5801. -3 -> e5801.-3
-                p = Regex.Replace(p, @"\.\s*([+-])\s*", ".$1");
+                // Corrige e5801+3 -> e5801.+3
+                // Corrige e5801-3 -> e5801.-3
+                p = Regex.Replace(
+                    p,
+                    @"^([bsde]\d{2,4}(?:\.\d{1,4})*)([+-]\d{1,2})$",
+                    "$1.$2");
 
-                // Corrige ruido OCR típico:
-                // e5801.-+3 -> e5801.+3
-                // e5801.+-3 -> e5801.-3
-                p = p.Replace(".-+", ".+")
-                     .Replace(".+-", ".-");
-
+                // Limpieza final suave: no elimina punto, + ni -
                 p = Regex.Replace(p, @"\s+", "");
 
-                normalizados.Add(p);
+                if (!string.IsNullOrWhiteSpace(p))
+                    normalizados.Add(p);
             }
 
             return string.Join(" ", normalizados);
         }
 
+
         public static string PrepararTextoCifDesdeOcr(string textoOcr, char letraEsperada)
         {
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
+
             if (string.IsNullOrWhiteSpace(textoOcr))
                 return string.Empty;
 
             string t = textoOcr;
 
-            // Normalizamos separadores, pero NO convertimos letras a números globalmente.
+            System.Diagnostics.Debug.Print("======================================");
+            System.Diagnostics.Debug.Print("[CIF OCR] Inicio PrepararTextoCifDesdeOcr");
+            System.Diagnostics.Debug.Print("[CIF OCR] Letra esperada: " + letraEsperada);
+            System.Diagnostics.Debug.Print("[CIF OCR] Texto crudo: " + textoOcr);
+
             t = t.Replace("\r", " ")
                  .Replace("\n", " ")
                  .Replace("\t", " ")
                  .Replace(",", " ")
                  .Replace(";", " ")
                  .Replace("|", " ")
-                 .Replace("—", " ")
-                 .Replace("–", " ")
+                 .Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("−", "-")
                  .Replace("_", " ")
                  .Replace(">", " ")
                  .Replace("<", " ")
@@ -485,128 +513,257 @@ namespace Indexador_GCBA_.Servicios
                  .Replace(")", " ")
                  .Replace("/", " ");
 
+            // Corrige ruido OCR antes de buscar candidatos.
+            // Ej: e1101.-.+3 -> e1101.+3
+            t = Regex.Replace(t, @"\.\s*-\s*\.\s*\+\s*", ".+");
+            t = Regex.Replace(t, @"\.\s*-\s*\+\s*", ".+");
+            t = Regex.Replace(t, @"\.\s*\+\s*-\s*", ".-");
+
             t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            System.Diagnostics.Debug.Print("[CIF OCR] Texto pre-limpieza: " + t);
 
             List<string> codigos = new List<string>();
 
             string letra = Regex.Escape(letraEsperada.ToString());
 
             // Caracteres que el OCR suele confundir dentro de números.
-            // OJO: solo se usan dentro de patrones candidatos, no sobre todo el texto.
-            string digitoOcr = @"0-9oOiIlLzZ";
+            // Incluyo s/S porque en casos como e5S700 puede venir confundido en una zona numérica.
+            string digitoOcr = @"0-9oOiIlLzZsS";
 
             // ==========================================================
             // 1) Códigos que ya tienen la letra esperada.
-            // Ejemplos:
+            //
+            // Acepta:
+            // e1201.+3
+            // 0e1201.+3
+            // e5S700.+3
+            // e5801.+3
+            // e310.+3
+            // e11.1.+3
+            // e5801.-3
             // d240.23
-            // d7202.23
-            // s110.888
-            // d 240.23
+            // s73023.373
             // ==========================================================
             string patronConLetra =
-                @"(?<![a-zA-Z0-9])" +
+                @"(?<![a-zA-Z])" +
+                @"(?:[0oO]\s*)?" +
                 letra +
-                @"\s*[" + digitoOcr + @"]{2,4}" +
-                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4})*" +
-                @"(?:\+)?" +
+                @"\s*[" + digitoOcr + @"]{2,6}" +
+                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){0,3}" +
+                @"(?:" +
+                    @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                    @"|" +
+                    @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                @")?" +
+                @"(?:\s*\+)?" +
                 @"(?![a-zA-Z])";
 
             foreach (Match m in Regex.Matches(t, patronConLetra, RegexOptions.IgnoreCase))
             {
-                string codigo = m.Value.Replace(" ", "").ToLowerInvariant();
+                string candidatoCrudo = m.Value;
+                string codigoFinal = NormalizarCandidatoCifOcr(candidatoCrudo, letraEsperada);
 
-                if (codigo.Length < 2)
-                    continue;
-
-                string cuerpo = codigo.Substring(1);
-                cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
-
-                string codigoFinal = letraEsperada + cuerpo;
+                System.Diagnostics.Debug.Print("[CIF OCR] Candidato con letra: " + candidatoCrudo + " -> " + codigoFinal);
 
                 if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
-                    codigos.Add(codigoFinal);
+                {
+                    if (!codigos.Contains(codigoFinal))
+                    {
+                        codigos.Add(codigoFinal);
+                        System.Diagnostics.Debug.Print("[CIF OCR] Aceptado: " + codigoFinal);
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.Print("[CIF OCR] Descartado: " + codigoFinal);
+                }
             }
 
             // ==========================================================
-            // 2) Códigos donde el OCR perdió la letra.
-            // Ejemplos:
-            // 1160.23  -> d1160.23
-            // 110.888  -> s110.888
+            // 1.B) Códigos donde el OCR confundió la letra inicial.
             //
-            // IMPORTANTE:
-            // Acá exigimos punto decimal/clasificador.
-            // Así evitamos falsos positivos como:
-            // LAC -> 1AC -> d1
+            // Regla:
+            // Aplica para b, s, d y e.
+            // Si aparece cualquier otra letra antes de un cuerpo con formato CIF,
+            // se prueba reemplazar esa letra por la letra esperada del campo.
+            //
+            // Se acepta SOLO si el código resultante pasa validación.
+            //
+            // Ejemplos:
+            // a75002.372 -> s75002.372 si letraEsperada = 's'
+            // x1201.+3   -> e1201.+3   si letraEsperada = 'e'
+            // r167.3+    -> b167.3+    si letraEsperada = 'b'
+            // l240.23    -> d240.23    si letraEsperada = 'd'
+            // ==========================================================
+            if (letraEsperada == 'b' ||
+                letraEsperada == 's' ||
+                letraEsperada == 'd' ||
+                letraEsperada == 'e')
+            {
+                string patronLetraInicialConfundida =
+                    @"(?<![a-zA-Z0-9])" +
+                    @"([a-zA-Z])\s*" +
+                    @"([" + digitoOcr + @"]{2,6}" +
+                    @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){0,3}" +
+                    @"(?:" +
+                        @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                        @"|" +
+                        @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                    @")?" +
+                    @"(?:\s*\+)?" +
+                    @")" +
+                    @"(?![a-zA-Z])";
+
+                foreach (Match m in Regex.Matches(t, patronLetraInicialConfundida, RegexOptions.IgnoreCase))
+                {
+                    string candidatoCrudo = m.Value;
+                    string letraDetectada = m.Groups[1].Value;
+                    string cuerpoDetectado = m.Groups[2].Value;
+
+                    if (string.IsNullOrWhiteSpace(letraDetectada) ||
+                        string.IsNullOrWhiteSpace(cuerpoDetectado))
+                    {
+                        continue;
+                    }
+
+                    char letraOcr = char.ToLowerInvariant(letraDetectada[0]);
+
+                    // Si ya era la letra esperada, este caso ya debería haber sido tomado
+                    // por el bloque anterior. Lo salteamos para evitar duplicados.
+                    if (letraOcr == letraEsperada)
+                        continue;
+
+                    string cuerpo = cuerpoDetectado.Trim().ToLowerInvariant();
+                    cuerpo = Regex.Replace(cuerpo, @"\s+", "");
+
+                    cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
+
+                    string codigoFinal = letraEsperada + cuerpo;
+                    codigoFinal = NormalizarCodigosCif(codigoFinal);
+
+                    System.Diagnostics.Debug.Print("[CIF OCR] Candidato con letra inicial confundida:");
+                    System.Diagnostics.Debug.Print("[CIF OCR] Crudo: " + candidatoCrudo);
+                    System.Diagnostics.Debug.Print("[CIF OCR] Letra OCR detectada: " + letraOcr);
+                    System.Diagnostics.Debug.Print("[CIF OCR] Letra esperada real: " + letraEsperada);
+                    System.Diagnostics.Debug.Print("[CIF OCR] Probando código corregido: " + codigoFinal);
+
+                    if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
+                    {
+                        if (!codigos.Contains(codigoFinal))
+                        {
+                            codigos.Add(codigoFinal);
+                            System.Diagnostics.Debug.Print("[CIF OCR] Aceptado con letra inicial corregida: " + codigoFinal);
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.Print("[CIF OCR] Descartado con letra inicial corregida: " + codigoFinal);
+                    }
+                }
+            }
+
+            // ==========================================================
+            // 2) Códigos donde el OCR pudo haber perdido la letra.
+            // Se mantiene más restrictivo para evitar falsos positivos.
+            //
+            // Ejemplos:
+            // 73023.373 -> s73023.373
+            // 1201.+3   -> e1201.+3
+            // 240.23    -> d240.23
             // ==========================================================
             string patronSinLetra =
                 @"(?<![a-zA-Z0-9])" +
-                @"[" + digitoOcr + @"]{2,4}" +
-                @"\s*\.\s*[" + digitoOcr + @"]{1,4}" +
-                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4})*" +
-                @"(?:\+)?" +
+                @"[" + digitoOcr + @"]{2,6}" +
+                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){1,3}" +
+                @"(?:" +
+                    @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                    @"|" +
+                    @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                @")?" +
+                @"(?:\s*\+)?" +
                 @"(?![a-zA-Z])";
 
             foreach (Match m in Regex.Matches(t, patronSinLetra, RegexOptions.IgnoreCase))
             {
-                string numero = m.Value.Replace(" ", "").ToLowerInvariant();
-                numero = NormalizarSoloNumeroCifDesdeOcr(numero);
+                string candidatoCrudo = m.Value;
+                string numero = NormalizarSoloNumeroCifDesdeOcr(candidatoCrudo.Replace(" ", ""));
 
                 string codigoFinal = letraEsperada + numero;
+                codigoFinal = NormalizarCodigosCif(codigoFinal);
+
+                System.Diagnostics.Debug.Print("[CIF OCR] Candidato sin letra: " + candidatoCrudo + " -> " + codigoFinal);
 
                 if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
-                    codigos.Add(codigoFinal);
+                {
+                    if (!codigos.Contains(codigoFinal))
+                    {
+                        codigos.Add(codigoFinal);
+                        System.Diagnostics.Debug.Print("[CIF OCR] Aceptado sin letra: " + codigoFinal);
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.Print("[CIF OCR] Descartado sin letra: " + codigoFinal);
+                }
             }
 
-            // ==========================================================
-            // 3) Limpieza final y evitar duplicados.
-            // ==========================================================
-            List<string> codigosLimpios = new List<string>();
+            string resultado = NormalizarCodigosCif(string.Join(" ", codigos));
 
-            foreach (string codigo in codigos)
-            {
-                string limpio = new string(
-                    codigo
-                        .ToLowerInvariant()
-                        .Where(c => c == letraEsperada || char.IsDigit(c) || c == '.' || c == '+')
-                        .ToArray());
+            System.Diagnostics.Debug.Print("[CIF OCR] Texto final preparado: " + resultado);
+            System.Diagnostics.Debug.Print("======================================");
 
-                if (!CodigoCifOcrPareceValido(limpio, letraEsperada))
-                    continue;
-
-                if (!codigosLimpios.Contains(limpio))
-                    codigosLimpios.Add(limpio);
-            }
-
-            return IndexadorCudService.NormalizarCodigosCif(
-                string.Join(" ", codigosLimpios));
+            return resultado;
         }
-
-        private static bool CodigoCifOcrPareceValido(string codigo, char letraEsperada)
+        private static string NormalizarCandidatoCifOcr(string candidato, char letraEsperada)
         {
-            if (string.IsNullOrWhiteSpace(codigo))
-                return false;
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
 
-            codigo = codigo.ToLowerInvariant().Trim();
+            if (string.IsNullOrWhiteSpace(candidato))
+                return string.Empty;
 
-            if (!codigo.StartsWith(letraEsperada.ToString()))
-                return false;
+            string p = candidato.Trim().ToLowerInvariant();
 
-            string cuerpo = codigo.Substring(1);
+            p = p.Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("−", "-")
+                 .Replace("_", "");
 
-            // Evita falsos positivos como d1, s1, b1, e1.
-            if (Regex.IsMatch(cuerpo, @"^\d{1}$"))
-                return false;
+            p = Regex.Replace(p, @"\s+", "");
 
-            // Acepta:
-            // d240.23
-            // d1160.23
-            // d7202.23
-            // d155.213
-            // s110.888
-            // b167.3+
-            return Regex.IsMatch(
-                codigo,
-                @"^" + Regex.Escape(letraEsperada.ToString()) + @"\d{2,4}(?:\.\d{1,4})*(?:\+)?$");
+            // Si vino 0e1201.+3, oe1201.+3, etc.,
+            // conserva desde la letra esperada.
+            int indiceLetra = p.IndexOf(letraEsperada);
+            if (indiceLetra > 0)
+                p = p.Substring(indiceLetra);
+
+            if (!p.StartsWith(letraEsperada.ToString()))
+                return string.Empty;
+
+            // Corrige e.5801.+3 -> e5801.+3
+            p = Regex.Replace(p, @"^([bsde])\.(?=\d)", "$1");
+
+            // Corrige variantes rotas de signos.
+            p = p.Replace(".-+.", ".+")
+                 .Replace(".+-.", ".-")
+                 .Replace(".-+", ".+")
+                 .Replace(".+-", ".-")
+                 .Replace(".-.+", ".+")
+                 .Replace(".+.-", ".-");
+
+            string cuerpo = p.Substring(1);
+            cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
+
+            p = letraEsperada + cuerpo;
+
+            // Corrige e5801+3 -> e5801.+3
+            // Corrige e5801-3 -> e5801.-3
+            p = Regex.Replace(
+                p,
+                @"^([bsde]\d{2,4}(?:\.\d{1,4})*)([+-]\d{1,2})$",
+                "$1.$2");
+
+            return p;
         }
 
 
@@ -615,6 +772,11 @@ namespace Indexador_GCBA_.Servicios
         {
             if (string.IsNullOrWhiteSpace(texto))
                 return string.Empty;
+
+            // Caso típico:
+            // e5S700 debería terminar como e5700, no como e57700.
+            // Entonces, si aparece S antes de 7, se interpreta como ruido duplicado.
+            texto = Regex.Replace(texto, @"(?i)s(?=7)", "");
 
             char[] chars = texto.ToCharArray();
 
@@ -634,12 +796,62 @@ namespace Indexador_GCBA_.Servicios
                 {
                     chars[i] = '1';
                 }
+                else if (c == 's' || c == 'S')
+                {
+                    chars[i] = '7';
+                }
             }
 
-            return new string(chars);
+            string normalizado = new string(chars);
+
+            // Conserva solo lo necesario para códigos CIF.
+            normalizado = new string(
+                normalizado
+                    .Where(c => char.IsDigit(c) || c == '.' || c == '+' || c == '-')
+                    .ToArray());
+
+            return normalizado;
         }
 
+        private static bool CodigoCifOcrPareceValido(string codigo, char letraEsperada)
+        {
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
 
+            if (string.IsNullOrWhiteSpace(codigo))
+                return false;
+
+            codigo = NormalizarCodigosCif(codigo).Trim().ToLowerInvariant();
+
+            if (string.IsNullOrWhiteSpace(codigo))
+                return false;
+
+            if (!codigo.StartsWith(letraEsperada.ToString()))
+                return false;
+
+            string cuerpo = codigo.Substring(1);
+
+            // Evita falsos positivos como d1, s1, b1, e1.
+            if (Regex.IsMatch(cuerpo, @"^\d{1}$"))
+                return false;
+
+            int maxDigitosBase = ObtenerMaxDigitosBaseCif(letraEsperada);
+
+            string patron =
+                @"^" + Regex.Escape(letraEsperada.ToString()) +
+                @"\d{2," + maxDigitosBase + "}" +
+                @"(?:" +
+                    // s73023.373 / s75002.372 / d240.23 / s110.888 / b167.3+
+                    @"(?:\.\d{1,4})+(?:\+)?" +
+                    @"|" +
+                    // e5801.+3 / e11.1.+3
+                    @"(?:\.\d{1,4})*\.[+-]\d{1,2}" +
+                    @"|" +
+                    // e5801-3 / e5801+3, por si el punto se perdió
+                    @"(?:\.\d{1,4})*[+-]\d{1,2}" +
+                @")$";
+
+            return Regex.IsMatch(codigo, patron);
+        }
 
 
         public static string SanitizarNombreArchivo(string texto)
@@ -884,10 +1096,21 @@ namespace Indexador_GCBA_.Servicios
 
         public static ResultadoValidacion ValidarCodigosCif(string texto, char letraEsperada, string nombreCampo, bool obligatorio)
         {
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
+
+            string textoOriginal = texto ?? string.Empty;
             texto = NormalizarCodigosCif(texto);
+
+            System.Diagnostics.Debug.Print("======================================");
+            System.Diagnostics.Debug.Print("[CIF VALIDACION] Campo: " + nombreCampo);
+            System.Diagnostics.Debug.Print("[CIF VALIDACION] Letra esperada: " + letraEsperada);
+            System.Diagnostics.Debug.Print("[CIF VALIDACION] Texto original: " + textoOriginal);
+            System.Diagnostics.Debug.Print("[CIF VALIDACION] Texto normalizado: " + texto);
 
             if (string.IsNullOrWhiteSpace(texto))
             {
+                System.Diagnostics.Debug.Print("[CIF VALIDACION] Texto vacío.");
+
                 return obligatorio
                     ? ResultadoValidacion.Error(nombreCampo + " es obligatorio.")
                     : ResultadoValidacion.Ok();
@@ -902,22 +1125,138 @@ namespace Indexador_GCBA_.Servicios
                 if (string.IsNullOrWhiteSpace(c))
                     continue;
 
-                if (c[0] != char.ToLowerInvariant(letraEsperada))
+                System.Diagnostics.Debug.Print("[CIF VALIDACION] Validando código: " + c);
+
+                if (c[0] != letraEsperada)
                 {
+                    System.Diagnostics.Debug.Print("[CIF VALIDACION] Rechazado por letra incorrecta: " + c);
+
                     return ResultadoValidacion.Error(
                         nombreCampo + " debe contener códigos que comiencen con '" +
-                        char.ToLowerInvariant(letraEsperada) + "'. Código detectado: " + codigo);
+                        letraEsperada + "'. Código detectado: " + codigo);
                 }
 
-                if (!EsCodigoCifValidoPorLetra(c, letraEsperada))
+                bool validoPorValidadorPrincipal = EsCodigoCifValidoPorLetra(c, letraEsperada);
+                bool validoPorFormatoOcr = CodigoCifOcrPareceValido(c, letraEsperada);
+
+                System.Diagnostics.Debug.Print(
+                    "[CIF VALIDACION] Resultado " + c +
+                    " | EsCodigoCifValidoPorLetra=" + validoPorValidadorPrincipal +
+                    " | CodigoCifOcrPareceValido=" + validoPorFormatoOcr);
+
+                if (!validoPorValidadorPrincipal && !validoPorFormatoOcr)
                 {
                     return ResultadoValidacion.Error(
                         "Código CIF inválido en " + nombreCampo + ": " + codigo);
                 }
             }
 
+            System.Diagnostics.Debug.Print("[CIF VALIDACION] OK");
+            System.Diagnostics.Debug.Print("======================================");
+
             return ResultadoValidacion.Ok();
         }
+
+        private static int ObtenerMaxDigitosBaseCif(char letraEsperada)
+        {
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
+
+            // En estructuras corporales aparecen códigos como:
+            // s73023.373
+            // s75002.372
+            if (letraEsperada == 's')
+                return 5;
+
+            return 4;
+        }
+
+
+        public static bool EstadoOcrPermitePrecarga(string estadoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(estadoOcr))
+                return false;
+
+            return estadoOcr.Trim().Equals("OKAutomatico", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static ResultadoValidacion ValidarApellidoNombrePreprocesamiento(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return ResultadoValidacion.Ok("Apellido y nombre vacío. No se carga.");
+
+            string t = NormalizarNombreApellido(texto);
+
+            if (t.Length < 5)
+                return ResultadoValidacion.Error("Apellido y nombre demasiado corto.");
+
+            if (t.Length > 120)
+                return ResultadoValidacion.Error("Apellido y nombre demasiado largo.");
+
+            if (t.All(char.IsDigit))
+                return ResultadoValidacion.Error("Apellido y nombre contiene solo números.");
+
+            string[] basuraInstitucional =
+            {
+        "GOBIERNO",
+        "CERTIFICADO",
+        "DISCAPACIDAD",
+        "MINISTERIO",
+        "SALUD",
+        "LEY",
+        "CUD",
+        "DNI",
+        "CUIL",
+        "DIAGNOSTICO",
+        "FECHA",
+        "NACIMIENTO",
+        "DOMICILIO",
+        "NACIONALIDAD",
+        "ARGENTINA",
+        "JUNTA",
+        "EVALUADORA"
+    };
+
+            foreach (string palabra in basuraInstitucional)
+            {
+                if (t.Contains(palabra))
+                    return ResultadoValidacion.Error("Apellido y nombre contiene texto institucional: " + palabra);
+            }
+
+            int letras = t.Count(char.IsLetter);
+            int simbolos = t.Count(c => !char.IsLetterOrDigit(c) && !char.IsWhiteSpace(c));
+
+            if (letras < 4)
+                return ResultadoValidacion.Error("Apellido y nombre tiene pocas letras útiles.");
+
+            if (simbolos > 5)
+                return ResultadoValidacion.Error("Apellido y nombre tiene demasiados símbolos.");
+
+            return ResultadoValidacion.Ok();
+        }
+
+        public static string NormalizarAcompaniantePreprocesamiento(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.Trim().ToUpperInvariant();
+
+            t = t.Replace("Í", "I")
+                 .Replace("Á", "A")
+                 .Replace("É", "E")
+                 .Replace("Ó", "O")
+                 .Replace("Ú", "U");
+
+            if (t == "S" || t == "SI" || t.Contains("CON ACOMP"))
+                return "SI";
+
+            if (t == "N" || t == "NO" || t.Contains("SIN ACOMP"))
+                return "NO";
+
+            return string.Empty;
+        }
+
+
         private static bool EsCodigoCifValidoPorLetra(string codigo, char letraEsperada)
         {
             if (string.IsNullOrWhiteSpace(codigo))
@@ -934,7 +1273,7 @@ namespace Indexador_GCBA_.Servicios
 
                 case 's':
                     // Ejemplo: s110.888
-                    return Regex.IsMatch(codigo, @"^s\d{2,4}\.\d{1,4}$");
+                    return Regex.IsMatch(codigo, @"^s\d{2,5}\.\d{1,4}$");
 
                 case 'd':
                     // Ejemplos: d240.23, d155.213

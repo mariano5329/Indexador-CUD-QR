@@ -1,4 +1,5 @@
 ﻿using Indexador_GCBA_.Datos;
+using Indexador_GCBA_.Entidades;
 using Indexador_GCBA_.Servicios;
 using PdfiumViewer;
 using System;
@@ -32,9 +33,9 @@ namespace Indexador_GCBA_
         // RUTAS CUD
         // Ajustalas a tus carpetas reales cuando definas ambiente final.
         // ==========================================================
-        private readonly string rutaCudProcesadas = @"J:\COPIDIS\01_PENDIENTES_INDEXAR\";
-        private readonly string rutaCudVerificada = @"J:\COPIDIS\02_CERTIFICADOS_VERIFICADOS\";
-        private readonly string rutaCudIlegibles = @"J:\COPIDIS\03_ILEGIBLES\";
+        private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
+        private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
+        private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
         private int _idCudEditando = 0;
 
         // ==========================================================
@@ -96,6 +97,13 @@ namespace Indexador_GCBA_
         private const int MIN_ANCHO_CUADRANTE_OCR = 8;
         private const int MIN_ALTO_CUADRANTE_OCR = 8;
 
+
+
+        private const int FACTOR_RENDER_OCR_CUADRANTE = 4;
+        private const int DPI_RENDER_OCR_CUADRANTE = 300;
+        private const int MAX_LADO_RENDER_OCR_CUADRANTE = 4200;
+
+
         private enum EstadoCuadranteOcr
         {
             Ninguno,
@@ -105,6 +113,93 @@ namespace Indexador_GCBA_
             ConfirmadoVerde,
             ErrorNaranja
         }
+        private Bitmap RenderizarPdfActualAltaDefinicionParaOcr()
+        {
+            if (string.IsNullOrWhiteSpace(RutaNombreImagen))
+            {
+                Debug.WriteLine("[OCR HD] RutaNombreImagen vacía. No se puede renderizar PDF HD.");
+                return null;
+            }
+
+            if (!File.Exists(RutaNombreImagen))
+            {
+                Debug.WriteLine("[OCR HD] No existe el PDF actual: " + RutaNombreImagen);
+                return null;
+            }
+
+            if (pictureBox1.Image == null)
+            {
+                Debug.WriteLine("[OCR HD] pictureBox1.Image es null. No hay referencia visual para mantener proporción.");
+                return null;
+            }
+
+            try
+            {
+                int anchoBase = pictureBox1.Image.Width;
+                int altoBase = pictureBox1.Image.Height;
+
+                if (anchoBase <= 0 || altoBase <= 0)
+                {
+                    Debug.WriteLine("[OCR HD] Tamaño base inválido. Ancho=" + anchoBase + " Alto=" + altoBase);
+                    return null;
+                }
+
+                int anchoRender = anchoBase * FACTOR_RENDER_OCR_CUADRANTE;
+                int altoRender = altoBase * FACTOR_RENDER_OCR_CUADRANTE;
+
+                int ladoMayor = Math.Max(anchoRender, altoRender);
+
+                if (ladoMayor > MAX_LADO_RENDER_OCR_CUADRANTE)
+                {
+                    float escala = (float)MAX_LADO_RENDER_OCR_CUADRANTE / ladoMayor;
+
+                    anchoRender = Math.Max(1, (int)(anchoRender * escala));
+                    altoRender = Math.Max(1, (int)(altoRender * escala));
+                }
+
+                Debug.WriteLine("==================================================");
+                Debug.WriteLine("[OCR HD] Renderizando PDF para OCR en alta definición");
+                Debug.WriteLine("[OCR HD] PDF: " + RutaNombreImagen);
+                Debug.WriteLine("[OCR HD] Imagen PictureBox base: " + anchoBase + "x" + altoBase);
+                Debug.WriteLine("[OCR HD] Render OCR HD: " + anchoRender + "x" + altoRender);
+                Debug.WriteLine("[OCR HD] DPI: " + DPI_RENDER_OCR_CUADRANTE);
+                Debug.WriteLine("==================================================");
+
+                using (PdfDocument pdfDocument = PdfDocument.Load(RutaNombreImagen))
+                {
+                    if (pdfDocument.PageCount <= 0)
+                    {
+                        Debug.WriteLine("[OCR HD] El PDF no contiene páginas.");
+                        return null;
+                    }
+
+                    Image render = pdfDocument.Render(
+                        0,
+                        anchoRender,
+                        altoRender,
+                        DPI_RENDER_OCR_CUADRANTE,
+                        DPI_RENDER_OCR_CUADRANTE,
+                        true);
+
+                    Bitmap bmp = render as Bitmap;
+
+                    if (bmp != null)
+                        return bmp;
+
+                    using (render)
+                    {
+                        return new Bitmap(render);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[OCR HD][ERROR] No se pudo renderizar PDF en alta definición.");
+                Debug.WriteLine(ex.ToString());
+                return null;
+            }
+        }
+
 
         public FormCopidis(Entidades.Indexador pIndexador)
         {
@@ -488,6 +583,370 @@ namespace Indexador_GCBA_
                     MessageBoxIcon.Error);
             }
         }
+        private bool _cargandoDesdePreprocesamiento = false;
+
+
+
+        private void CargarDatosPreprocesamientoSiExisten(string rutaPdfActual)
+        {
+            if (string.IsNullOrWhiteSpace(rutaPdfActual))
+                return;
+
+            try
+            {
+                _cargandoDesdePreprocesamiento = true;
+
+                Debug.WriteLine("==================================================");
+                Debug.WriteLine("[PREINDEX] Intentando cargar datos desde BDPreprocesamiento");
+                Debug.WriteLine("[PREINDEX] Ruta PDF actual: " + rutaPdfActual);
+
+                ObtenerDatos oconsulta = new ObtenerDatos();
+                PreprocesamientoCudDto datos = oconsulta.ObtenerPreprocesamientoPorRutaSalida(rutaPdfActual);
+
+                if (datos == null)
+                {
+                    Debug.WriteLine("[PREINDEX] No se encontró registro por RutaSalida.");
+                    return;
+                }
+
+                Debug.WriteLine("[PREINDEX] Registro encontrado.");
+                Debug.WriteLine("[PREINDEX] EstadoOCR: " + datos.EstadoOCR);
+                Debug.WriteLine("[PREINDEX] RequiereQA informativo: " + datos.RequiereQA);
+                Debug.WriteLine("[PREINDEX] ScoreGlobal: " + datos.ScoreGlobal);
+
+                // ============================================================
+                // REGLA PRINCIPAL:
+                // Solo se precarga si EstadoOCR = OKAutomatico.
+                // RequiereQA queda solo como dato informativo.
+                // ============================================================
+                if (!IndexadorCudService.EstadoOcrPermitePrecarga(datos.EstadoOCR))
+                {
+                    Debug.WriteLine("[PREINDEX] EstadoOCR distinto de OKAutomatico. No se carga ningún TextBox.");
+                    return;
+                }
+
+                Debug.WriteLine("[PREINDEX] EstadoOCR=OKAutomatico. Precarga habilitada.");
+
+                // ============================================================
+                // NUMERO CERTIFICADO
+                // ============================================================
+                string numeroCertificado = IndexadorCudService.NormalizarNumeroCertificado(datos.NumeroCertificado);
+                DatosNumeroCertificadoCud datosNumero = IndexadorCudService.ParseNumeroCertificado(numeroCertificado);
+
+                if (datosNumero.EsValido)
+                {
+                    TxtNumeCert.Text = datosNumero.NumeroNormalizado;
+
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] Cargado: " + datosNumero.NumeroNormalizado);
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] DNI interno: " + datosNumero.Dni);
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] Fecha emisión interna: " + datosNumero.FechaEmision);
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] Fecha vencimiento interna: " + datosNumero.FechaVencimiento);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] No cargado: " + datosNumero.Mensaje);
+                }
+
+                // ============================================================
+                // APELLIDO Y NOMBRE
+                // ============================================================
+                string apellidoNombre = IndexadorCudService.NormalizarNombreApellido(datos.ApellidoNombre);
+                ResultadoValidacion valApellido = IndexadorCudService.ValidarApellidoNombrePreprocesamiento(apellidoNombre);
+
+                if (valApellido.EsValido && !string.IsNullOrWhiteSpace(apellidoNombre))
+                {
+                    TxtApellidoNombre.Text = apellidoNombre;
+                    Debug.WriteLine("[PREINDEX][ApellidoNombre] Cargado: " + apellidoNombre);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][ApellidoNombre] No cargado: " + valApellido.Mensaje + " | Valor='" + datos.ApellidoNombre + "'");
+                }
+
+                // ============================================================
+                // DNI
+                // Si el número de certificado es válido, el DNI interno tiene prioridad.
+                // ============================================================
+                string dni = IndexadorCudService.NormalizarDni(datos.DNI);
+
+                if (datosNumero.EsValido)
+                {
+                    if (string.IsNullOrWhiteSpace(dni))
+                    {
+                        dni = datosNumero.Dni;
+                        Debug.WriteLine("[PREINDEX][DNI] DNI vacío en OCR. Se toma desde número de certificado: " + dni);
+                    }
+                    else if (!dni.Equals(datosNumero.Dni, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.WriteLine("[PREINDEX][DNI] OCR no coincide con número certificado. OCR=" + dni + " | Cert=" + datosNumero.Dni);
+                        dni = datosNumero.Dni;
+                        Debug.WriteLine("[PREINDEX][DNI] Se prioriza DNI del número certificado: " + dni);
+                    }
+                }
+
+                ResultadoValidacion valDni = IndexadorCudService.ValidarDni(dni, obligatorio: false);
+
+                if (valDni.EsValido && !string.IsNullOrWhiteSpace(dni))
+                {
+                    TxtNumDNI.Text = dni;
+                    Debug.WriteLine("[PREINDEX][DNI] Cargado: " + dni);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][DNI] No cargado: " + valDni.Mensaje + " | Valor='" + datos.DNI + "'");
+                }
+
+                // ============================================================
+                // CUIL
+                // Opcional.
+                // ============================================================
+                string cuil = IndexadorCudService.NormalizarCuil(datos.CUIL);
+                ResultadoValidacion valCuil = IndexadorCudService.ValidarCuil(cuil, dni, obligatorio: false);
+
+                if (valCuil.EsValido && !string.IsNullOrWhiteSpace(cuil))
+                {
+                    TxtNumCuil.Text = cuil;
+                    Debug.WriteLine("[PREINDEX][CUIL] Cargado: " + cuil);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][CUIL] No cargado: " + valCuil.Mensaje + " | Valor='" + datos.CUIL + "'");
+                }
+
+                // ============================================================
+                // FECHA NACIMIENTO
+                // ============================================================
+                string fechaNacimiento = datos.FechaNacimiento.HasValue
+                    ? datos.FechaNacimiento.Value.ToString("dd/MM/yyyy")
+                    : string.Empty;
+
+                fechaNacimiento = IndexadorCudService.NormalizarFechaCud(
+                    fechaNacimiento,
+                    TipoFechaCud.Nacimiento
+                );
+
+                ResultadoValidacion valFechaNacimiento = IndexadorCudService.ValidarFecha(
+                    fechaNacimiento,
+                    "Fecha de nacimiento",
+                    obligatorio: false,
+                    permiteFutura: false,
+                    minimo: new DateTime(1900, 1, 1),
+                    maximo: DateTime.Today
+                );
+
+                if (valFechaNacimiento.EsValido && !string.IsNullOrWhiteSpace(fechaNacimiento))
+                {
+                    TxtFechaNac.Text = fechaNacimiento;
+                    Debug.WriteLine("[PREINDEX][FechaNacimiento] Cargada: " + fechaNacimiento);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][FechaNacimiento] No cargada: " + valFechaNacimiento.Mensaje);
+                }
+
+                // ============================================================
+                // FECHA EMISION
+                // Si el número certificado es válido, se prioriza la fecha interna.
+                // ============================================================
+                string fechaEmision = string.Empty;
+
+                if (datosNumero.EsValido)
+                {
+                    fechaEmision = datosNumero.FechaEmision;
+                    Debug.WriteLine("[PREINDEX][FechaEmision] Se toma desde número certificado: " + fechaEmision);
+                }
+                else if (datos.FechaEmision.HasValue)
+                {
+                    fechaEmision = datos.FechaEmision.Value.ToString("dd/MM/yyyy");
+                }
+
+                fechaEmision = IndexadorCudService.NormalizarFechaCud(
+                    fechaEmision,
+                    TipoFechaCud.Emision
+                );
+
+                ResultadoValidacion valFechaEmision = IndexadorCudService.ValidarFecha(
+                    fechaEmision,
+                    "Fecha de emisión",
+                    obligatorio: false,
+                    permiteFutura: false,
+                    minimo: new DateTime(1900, 1, 1),
+                    maximo: DateTime.Today
+                );
+
+                if (valFechaEmision.EsValido && !string.IsNullOrWhiteSpace(fechaEmision))
+                {
+                    TxtFechaEmision.Text = fechaEmision;
+                    Debug.WriteLine("[PREINDEX][FechaEmision] Cargada: " + fechaEmision);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][FechaEmision] No cargada: " + valFechaEmision.Mensaje);
+                }
+
+                // ============================================================
+                // FECHA VENCIMIENTO
+                // Si el número certificado es válido, se prioriza la fecha interna.
+                // ============================================================
+                string fechaVencimiento = string.Empty;
+
+                if (datosNumero.EsValido)
+                {
+                    fechaVencimiento = datosNumero.FechaVencimiento;
+                    Debug.WriteLine("[PREINDEX][FechaVencimiento] Se toma desde número certificado: " + fechaVencimiento);
+                }
+                else if (datos.FechaVencimiento.HasValue)
+                {
+                    fechaVencimiento = datos.FechaVencimiento.Value.ToString("dd/MM/yyyy");
+                }
+
+                fechaVencimiento = IndexadorCudService.NormalizarFechaCud(
+                    fechaVencimiento,
+                    TipoFechaCud.Vencimiento
+                );
+
+                ResultadoValidacion valFechaVencimiento = IndexadorCudService.ValidarFecha(
+                    fechaVencimiento,
+                    "Fecha de vencimiento",
+                    obligatorio: false,
+                    permiteFutura: true,
+                    minimo: new DateTime(1900, 1, 1),
+                    maximo: null
+                );
+
+                if (valFechaVencimiento.EsValido && !string.IsNullOrWhiteSpace(fechaVencimiento))
+                {
+                    TxtFechaVencimiento.Text = fechaVencimiento;
+                    Debug.WriteLine("[PREINDEX][FechaVencimiento] Cargada: " + fechaVencimiento);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][FechaVencimiento] No cargada: " + valFechaVencimiento.Mensaje);
+                }
+
+                // ============================================================
+                // ACOMPAÑANTE
+                // ============================================================
+                string acompaniante = IndexadorCudService.NormalizarAcompaniantePreprocesamiento(datos.Acompaniante);
+
+                if (!string.IsNullOrWhiteSpace(acompaniante))
+                {
+                    CmbAcomapante.Text = acompaniante;
+                    Debug.WriteLine("[PREINDEX][Acompaniante] Cargado: " + acompaniante);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][Acompaniante] No cargado. Valor='" + datos.Acompaniante + "'");
+                }
+
+                // ============================================================
+                // CIF - FUNCIONES CORPORALES
+                // ============================================================
+                string funciones = IndexadorCudService.NormalizarCodigosCif(datos.FuncionesCorporales);
+
+                ResultadoValidacion valFunciones = IndexadorCudService.ValidarCodigosCif(
+                    funciones,
+                    'b',
+                    "Funciones corporales",
+                    obligatorio: false
+                );
+
+                if (valFunciones.EsValido && !string.IsNullOrWhiteSpace(funciones))
+                {
+                    TxtFuncionesCorporales.Text = funciones;
+                    Debug.WriteLine("[PREINDEX][FuncionesCorporales] Cargado: " + funciones);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][FuncionesCorporales] No cargado: " + valFunciones.Mensaje + " | Valor='" + datos.FuncionesCorporales + "'");
+                }
+
+                // ============================================================
+                // CIF - ESTRUCTURAS CORPORALES
+                // ============================================================
+                string estructuras = IndexadorCudService.NormalizarCodigosCif(datos.EstructurasCorporales);
+
+                ResultadoValidacion valEstructuras = IndexadorCudService.ValidarCodigosCif(
+                    estructuras,
+                    's',
+                    "Estructuras corporales",
+                    obligatorio: false
+                );
+
+                if (valEstructuras.EsValido && !string.IsNullOrWhiteSpace(estructuras))
+                {
+                    TxtEstructurasCorporales.Text = estructuras;
+                    Debug.WriteLine("[PREINDEX][EstructurasCorporales] Cargado: " + estructuras);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][EstructurasCorporales] No cargado: " + valEstructuras.Mensaje + " | Valor='" + datos.EstructurasCorporales + "'");
+                }
+
+                // ============================================================
+                // CIF - ACTIVIDAD / PARTICIPACIÓN
+                // ============================================================
+                string actividad = IndexadorCudService.NormalizarCodigosCif(datos.ActividadParticipacion);
+
+                ResultadoValidacion valActividad = IndexadorCudService.ValidarCodigosCif(
+                    actividad,
+                    'd',
+                    "Actividad y participación",
+                    obligatorio: false
+                );
+
+                if (valActividad.EsValido && !string.IsNullOrWhiteSpace(actividad))
+                {
+                    TxtActividad_Particip.Text = actividad;
+                    Debug.WriteLine("[PREINDEX][ActividadParticipacion] Cargado: " + actividad);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][ActividadParticipacion] No cargado: " + valActividad.Mensaje + " | Valor='" + datos.ActividadParticipacion + "'");
+                }
+
+                // ============================================================
+                // CIF - FACTORES AMBIENTALES
+                // ============================================================
+                string factores = IndexadorCudService.NormalizarCodigosCif(datos.FactoresAmbientales);
+
+                ResultadoValidacion valFactores = IndexadorCudService.ValidarCodigosCif(
+                    factores,
+                    'e',
+                    "Factores ambientales",
+                    obligatorio: false
+                );
+
+                if (valFactores.EsValido && !string.IsNullOrWhiteSpace(factores))
+                {
+                    TxtFactoresAmbientales.Text = factores;
+                    Debug.WriteLine("[PREINDEX][FactoresAmbientales] Cargado: " + factores);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][FactoresAmbientales] No cargado: " + valFactores.Mensaje + " | Valor='" + datos.FactoresAmbientales + "'");
+                }
+
+                // ============================================================
+                // CAMPOS OMITIDOS DESDE PREPROCESAMIENTO
+                // ============================================================
+                Debug.WriteLine("[PREINDEX][Diagnostico] Omitido por decisión funcional.");
+                Debug.WriteLine("[PREINDEX][OrientacionPrestacional] Omitida por decisión funcional.");
+
+                Debug.WriteLine("[PREINDEX] Precarga finalizada.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[PREINDEX][ERROR] " + ex);
+            }
+            finally
+            {
+                _cargandoDesdePreprocesamiento = false;
+            }
+        }
+
+
+      
 
         private void btnGrabar_Click(object sender, EventArgs e)
         {
@@ -862,7 +1321,13 @@ namespace Indexador_GCBA_
             CargarFicha(RutaNombreImagen);
 
             if (editar == 1)
+            {
                 CargarDatosCudEditado(RutaNombreImagen);
+            }
+            else
+            {
+                CargarDatosPreprocesamientoSiExisten(RutaNombreImagen);
+            }
 
             TxtNumeCert.Focus();
         }
@@ -975,7 +1440,18 @@ namespace Indexador_GCBA_
         private void KeyPressCodigoCifCud(object sender, KeyPressEventArgs e)
         {
             if (!IndexadorCudService.CaracterPermitidoCif(e.KeyChar))
+            {
                 e.Handled = true;
+                return;
+            }
+
+            if (!char.IsControl(e.KeyChar))
+            {
+                char c = char.ToLowerInvariant(e.KeyChar);
+
+                if (c == 'b' || c == 's' || c == 'd' || c == 'e')
+                    e.KeyChar = c;
+            }
         }
 
         private void TxtNumeCert_TextChangedCud(object sender, EventArgs e)
@@ -1013,8 +1489,10 @@ namespace Indexador_GCBA_
             int pos = txt.SelectionStart;
 
             _normalizandoCud = true;
+
             txt.Text = limpio;
             txt.SelectionStart = Math.Min(pos, txt.Text.Length);
+
             _normalizandoCud = false;
         }
 
@@ -1025,8 +1503,13 @@ namespace Indexador_GCBA_
 
             List<char> chars = new List<char>();
 
-            foreach (char c in texto)
+            foreach (char cOriginal in texto)
             {
+                char c = cOriginal;
+
+                if (char.IsLetter(c))
+                    c = char.ToLowerInvariant(c);
+
                 if (IndexadorCudService.CaracterPermitidoCif(c) ||
                     c == ',' || c == ';' || c == '|' ||
                     c == '\r' || c == '\n' || c == '\t')
@@ -1742,17 +2225,18 @@ namespace Indexador_GCBA_
                 return;
             }
 
+            // ==========================================================
+            // SI ESTÁ EN EDICIÓN, EL MISMO BOTÓN GRABAR HACE UPDATE
+            // ==========================================================
             if (editar == 1)
             {
-                MessageBox.Show(
-                    "Este certificado ya está verificado. Para cambiar datos use Modificar.",
-                    "Indexador CUD",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-
+                ActualizarCudEditado(dto);
                 return;
             }
 
+            // ==========================================================
+            // FLUJO NORMAL: INSERT NUEVO
+            // ==========================================================
             int numeroLineaActual = lboxIndice.SelectedIndex;
             int numeroLineaSiguiente = numeroLineaActual + 1;
 
@@ -1809,7 +2293,87 @@ namespace Indexador_GCBA_
 
             return "CUD_SIN_IDENTIFICAR";
         }
+        private string ObtenerIndexadorActual()
+        {
+            if (oIndexador != null && !string.IsNullOrWhiteSpace(oIndexador.NombreIndexador))
+                return oIndexador.NombreIndexador.Trim();
 
+            return string.Empty;
+        }
+        private void ActualizarCudEditado(CertificadoCudDto dto)
+        {
+            try
+            {
+                if (_idCudEditando <= 0)
+                {
+                    MessageBox.Show(
+                        "No se pudo determinar el ID del certificado a modificar.",
+                        "Indexador CUD",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    return;
+                }
+
+                string rutaSalida = RutaNombreImagen;
+
+                if (string.IsNullOrWhiteSpace(rutaSalida))
+                    rutaSalida = txtRutaLote.Text;
+
+                string indexador = ObtenerIndexadorActual();
+
+                ProduccionAccess oDatos = new ProduccionAccess();
+
+                bool actualizado = oDatos.EditarCertificadoCudVerificado(
+                    _idCudEditando,
+                    dto.NumeroCertificado,
+                    dto.ApellidoNombre,
+                    dto.Sexo,
+                    dto.DNI,
+                    dto.CUIL,
+                    dto.FechaNacimiento,
+                    dto.Diagnostico,
+                    dto.FuncionesCorporales,
+                    dto.EstructurasCorporales,
+                    dto.ActividadParticipacion,
+                    dto.FactoresAmbientales,
+                    dto.OrientacionPrestacional,
+                    dto.FechaEmision,
+                    dto.FechaVencimiento,
+                    dto.Acompaniante,
+                    rutaSalida,
+                    indexador,
+                    "MODIFICADO"
+                );
+
+                if (!actualizado)
+                {
+                    MessageBox.Show(
+                        "No se pudo modificar el certificado. No se actualizó ningún registro.",
+                        "Indexador CUD",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    return;
+                }
+
+                RestaurarColoresFormularioCud();
+
+                MessageBox.Show(
+                    "Certificado modificado correctamente.",
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error al modificar el certificado: " + ex.Message,
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
 
         private bool RegistrarProduccionAccessCud(
           CertificadoCudDto dto,
@@ -2115,11 +2679,24 @@ namespace Indexador_GCBA_
                     TipoFechaCud.Vencimiento);
             }
             else if (destino == TxtFuncionesCorporales ||
-                     destino == TxtEstructurasCorporales ||
-                     destino == TxtActividad_Particip ||
-                     destino == TxtFactoresAmbientales)
+           destino == TxtEstructurasCorporales ||
+           destino == TxtActividad_Particip ||
+           destino == TxtFactoresAmbientales)
             {
-                ((TextBox)destino).Text = IndexadorCudService.NormalizarCodigosCif(textoOcr);
+                TextBox txtCif = destino as TextBox;
+
+                if (txtCif != null)
+                {
+                    string textoFinal = IndexadorCudService.NormalizarCodigosCif(textoOcr);
+
+                    Debug.WriteLine("[OCR CIF][APLICAR] Campo destino: " + destino.Name);
+                    Debug.WriteLine("[OCR CIF][APLICAR] Texto recibido:");
+                    Debug.WriteLine(textoOcr);
+                    Debug.WriteLine("[OCR CIF][APLICAR] Texto final aplicado:");
+                    Debug.WriteLine(textoFinal);
+
+                    txtCif.Text = textoFinal;
+                }
             }
             else if (destino == TxtDiagnostico)
             {
@@ -3202,7 +3779,14 @@ namespace Indexador_GCBA_
                 Size tamanioPictureBox = pictureBox1.ClientSize;
                 PictureBoxSizeMode sizeMode = pictureBox1.SizeMode;
 
-                Bitmap imagenParaOcr = ClonarImagenActualPictureBoxParaOcr();
+                Bitmap imagenParaOcr = RenderizarPdfActualAltaDefinicionParaOcr();
+
+                if (imagenParaOcr == null)
+                {
+                    Debug.WriteLine("[OCR HD] Falló render HD. Se usa fallback con imagen actual del PictureBox.");
+
+                    imagenParaOcr = ClonarImagenActualPictureBoxParaOcr();
+                }
 
                 if (imagenParaOcr == null)
                 {
@@ -3544,16 +4128,35 @@ namespace Indexador_GCBA_
 
         private ResultadoAplicacionOcr PrepararOcrCif(string textoOcr, char letraEsperada, string nombreCampo, float confianza)
         {
-            string preparado = IndexadorCudService.PrepararTextoCifDesdeOcr(
-                textoOcr,
-                letraEsperada);
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
 
+            string crudo = textoOcr ?? string.Empty;
+
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[OCR CIF] INICIO");
             Debug.WriteLine("[OCR CIF] Campo: " + nombreCampo);
             Debug.WriteLine("[OCR CIF] Letra esperada: " + letraEsperada);
+            Debug.WriteLine("[OCR CIF] Confianza OCR: " + confianza);
             Debug.WriteLine("[OCR CIF] Texto OCR crudo:");
-            Debug.WriteLine(textoOcr);
-            Debug.WriteLine("[OCR CIF] Texto preparado:");
+            Debug.WriteLine(crudo);
+
+            string preparado = IndexadorCudService.PrepararTextoCifDesdeOcr(
+                crudo,
+                letraEsperada);
+
+            Debug.WriteLine("[OCR CIF] Texto preparado por servicio:");
             Debug.WriteLine(preparado);
+
+            if (string.IsNullOrWhiteSpace(preparado))
+            {
+                Debug.WriteLine("[OCR CIF] Rechazado: el servicio devolvió texto preparado vacío.");
+                Debug.WriteLine("[OCR CIF] Esto indica que PrepararTextoCifDesdeOcr no detectó candidatos válidos o los descartó todos.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no produjo códigos CIF recuperables para " + nombreCampo + ". Revise el recorte o el patrón de normalización.",
+                    preparado);
+            }
 
             ResultadoValidacion validacion = IndexadorCudService.ValidarCodigosCif(
                 preparado,
@@ -3561,14 +4164,23 @@ namespace Indexador_GCBA_
                 nombreCampo,
                 true);
 
+            Debug.WriteLine("[OCR CIF] Resultado validación:");
+            Debug.WriteLine("[OCR CIF] EsValido: " + validacion.EsValido);
+            Debug.WriteLine("[OCR CIF] Severidad: " + validacion.Severidad);
+            Debug.WriteLine("[OCR CIF] Mensaje: " + validacion.Mensaje);
+
             if (!validacion.EsValido)
             {
-                Debug.WriteLine("[OCR CIF] Rechazado: " + validacion.Mensaje);
+                Debug.WriteLine("[OCR CIF] Rechazado por validación final.");
+                Debug.WriteLine("==================================================");
 
                 return ResultadoAplicacionOcr.Rechazar(
-                    "El OCR no produjo códigos CIF válidos para " + nombreCampo + ".",
+                    "El OCR detectó texto CIF, pero no pasó la validación para " + nombreCampo + ": " + validacion.Mensaje,
                     preparado);
             }
+
+            Debug.WriteLine("[OCR CIF] OK: " + preparado);
+            Debug.WriteLine("==================================================");
 
             return ResultadoAplicacionOcr.Ok(preparado, "CIF OCR válido.");
         }

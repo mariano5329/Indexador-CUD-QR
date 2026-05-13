@@ -163,6 +163,7 @@
     <Compile Include="Datos\ProduccionAccess.cs" />
     <Compile Include="Entidades\Indexador.cs" />
     <Compile Include="Entidades\Persona.cs" />
+    <Compile Include="Entidades\PreprocesamientoCudDto.cs" />
     <Compile Include="Entidades\Proyecto.cs" />
     <Compile Include="FormUsuarios.cs">
       <SubType>Form</SubType>

@@ -31,6 +31,27 @@ namespace Indexador_GCBA_.Datos
 
             return conexion1;
         }
+        public static OleDbConnection ObtenerConexionPreprocesamiento()
+        {
+            // ==========================================================
+            // BASE PREPROCESAMIENTO CUD - COPIDIS
+            // Se usa solo para leer los datos OCR previos generados
+            // por el preprocesador.
+            // ==========================================================
+            string rutaBase = @"J:\COPIDIS\00_BD\BDPreprocesamiento.accdb";
+
+            if (!File.Exists(rutaBase))
+                throw new FileNotFoundException("No se encontró la base de datos de preprocesamiento.", rutaBase);
+
+            string cadenaConexion =
+                @"Provider=Microsoft.ACE.OLEDB.12.0;" +
+                @"Data Source=" + rutaBase + ";" +
+                @"Persist Security Info=False;";
+
+            OleDbConnection conexion = new OleDbConnection(cadenaConexion);
+
+            return conexion;
+        }
 
 
     }

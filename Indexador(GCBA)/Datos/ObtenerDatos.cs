@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Indexador_GCBA_.Entidades;
+using System;
 using System.Data;
 using System.Data.OleDb;
 using System.Diagnostics;
@@ -227,7 +228,134 @@ ORDER BY [fecha] DESC";
             }
         }
 
-     
-  
+        public PreprocesamientoCudDto ObtenerPreprocesamientoPorRutaSalida(string rutaSalida)
+        {
+            if (string.IsNullOrWhiteSpace(rutaSalida))
+                return null;
+
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexionPreprocesamiento())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1
+    [Caja],
+    [ArchivoEntrada],
+    [RutaEntrada],
+    [RutaSalida],
+    [NumeroCertificado],
+    [ApellidoNombre],
+    [DNI],
+    [CUIL],
+    [FechaNacimiento],
+    [FuncionesCorporales],
+    [EstructurasCorporales],
+    [ActividadParticipacion],
+    [FactoresAmbientales],
+    [FechaEmision],
+    [FechaVencimiento],
+    [Acompaniante],
+    [ScoreGlobal],
+    [EstadoOCR],
+    [RequiereQA],
+    [Observaciones]
+FROM [Certificados_OCR]
+WHERE [RutaSalida] = ?
+ORDER BY [FechaProceso] DESC";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = rutaSalida.Trim();
+
+                    oCon.Open();
+
+                    using (OleDbDataReader dr = oCom.ExecuteReader())
+                    {
+                        if (!dr.Read())
+                            return null;
+
+                        return new PreprocesamientoCudDto
+                        {
+                            Caja = ValorString(dr["Caja"]),
+                            ArchivoEntrada = ValorString(dr["ArchivoEntrada"]),
+                            RutaEntrada = ValorString(dr["RutaEntrada"]),
+                            RutaSalida = ValorString(dr["RutaSalida"]),
+
+                            NumeroCertificado = ValorString(dr["NumeroCertificado"]),
+                            ApellidoNombre = ValorString(dr["ApellidoNombre"]),
+                            DNI = ValorString(dr["DNI"]),
+                            CUIL = ValorString(dr["CUIL"]),
+
+                            FechaNacimiento = ValorFechaNullable(dr["FechaNacimiento"]),
+                            FechaEmision = ValorFechaNullable(dr["FechaEmision"]),
+                            FechaVencimiento = ValorFechaNullable(dr["FechaVencimiento"]),
+
+                            FuncionesCorporales = ValorString(dr["FuncionesCorporales"]),
+                            EstructurasCorporales = ValorString(dr["EstructurasCorporales"]),
+                            ActividadParticipacion = ValorString(dr["ActividadParticipacion"]),
+                            FactoresAmbientales = ValorString(dr["FactoresAmbientales"]),
+
+                            Acompaniante = ValorString(dr["Acompaniante"]),
+
+                            ScoreGlobal = ValorDouble(dr["ScoreGlobal"]),
+                            EstadoOCR = ValorString(dr["EstadoOCR"]),
+                            RequiereQA = ValorBool(dr["RequiereQA"]),
+                            Observaciones = ValorString(dr["Observaciones"])
+                        };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogError("ObtenerPreprocesamientoPorRutaSalida", ex);
+                    throw;
+                }
+            }
+        }
+        private static string ValorString(object valor)
+        {
+            if (valor == null || valor == DBNull.Value)
+                return string.Empty;
+
+            return valor.ToString().Trim();
+        }
+
+        private static DateTime? ValorFechaNullable(object valor)
+        {
+            if (valor == null || valor == DBNull.Value)
+                return null;
+
+            if (DateTime.TryParse(valor.ToString(), out DateTime fecha))
+                return fecha;
+
+            return null;
+        }
+
+        private static double ValorDouble(object valor)
+        {
+            if (valor == null || valor == DBNull.Value)
+                return 0;
+
+            if (double.TryParse(valor.ToString(), out double numero))
+                return numero;
+
+            return 0;
+        }
+
+        private static bool ValorBool(object valor)
+        {
+            if (valor == null || valor == DBNull.Value)
+                return false;
+
+            if (valor is bool b)
+                return b;
+
+            if (bool.TryParse(valor.ToString(), out bool resultado))
+                return resultado;
+
+            return false;
+        }
+
+
+
+
     }
 }
