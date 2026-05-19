@@ -525,28 +525,25 @@ namespace Indexador_GCBA_.Servicios
 
             List<string> codigos = new List<string>();
 
+            // Guarda los rangos del texto que ya fueron tomados como código con letra.
+            // Esto evita que el mismo "s110.888" sea leído después como "sin letra".
+            List<Tuple<int, int>> rangosYaTomados = new List<Tuple<int, int>>();
+
             string letra = Regex.Escape(letraEsperada.ToString());
 
-            // Caracteres que el OCR suele confundir dentro de números.
-            // Incluyo s/S porque en casos como e5S700 puede venir confundido en una zona numérica.
+            // Para cuerpos numéricos internos permitimos letras confundibles.
+            // Ejemplo: e5S700.+3 puede normalizarse bien.
             string digitoOcr = @"0-9oOiIlLzZsS";
+
+            // Para códigos SIN letra inicial, no permitimos que empiecen con s/S,
+            // porque si no "s110.888" se interpreta como número y termina en "s7110.888".
+            string digitoOcrInicioSinLetra = @"0-9oOiIlLzZ";
 
             // ==========================================================
             // 1) Códigos que ya tienen la letra esperada.
-            //
-            // Acepta:
-            // e1201.+3
-            // 0e1201.+3
-            // e5S700.+3
-            // e5801.+3
-            // e310.+3
-            // e11.1.+3
-            // e5801.-3
-            // d240.23
-            // s73023.373
             // ==========================================================
             string patronConLetra =
-                @"(?<![a-zA-Z])" +
+                @"(?<![a-zA-Z0-9.])" +
                 @"(?:[0oO]\s*)?" +
                 letra +
                 @"\s*[" + digitoOcr + @"]{2,6}" +
@@ -571,7 +568,13 @@ namespace Indexador_GCBA_.Servicios
                     if (!codigos.Contains(codigoFinal))
                     {
                         codigos.Add(codigoFinal);
+                        rangosYaTomados.Add(new Tuple<int, int>(m.Index, m.Length));
+
                         System.Diagnostics.Debug.Print("[CIF OCR] Aceptado: " + codigoFinal);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.Print("[CIF OCR] Ya existía, no se duplica: " + codigoFinal);
                     }
                 }
                 else
@@ -582,19 +585,6 @@ namespace Indexador_GCBA_.Servicios
 
             // ==========================================================
             // 1.B) Códigos donde el OCR confundió la letra inicial.
-            //
-            // Regla:
-            // Aplica para b, s, d y e.
-            // Si aparece cualquier otra letra antes de un cuerpo con formato CIF,
-            // se prueba reemplazar esa letra por la letra esperada del campo.
-            //
-            // Se acepta SOLO si el código resultante pasa validación.
-            //
-            // Ejemplos:
-            // a75002.372 -> s75002.372 si letraEsperada = 's'
-            // x1201.+3   -> e1201.+3   si letraEsperada = 'e'
-            // r167.3+    -> b167.3+    si letraEsperada = 'b'
-            // l240.23    -> d240.23    si letraEsperada = 'd'
             // ==========================================================
             if (letraEsperada == 'b' ||
                 letraEsperada == 's' ||
@@ -629,15 +619,14 @@ namespace Indexador_GCBA_.Servicios
 
                     char letraOcr = char.ToLowerInvariant(letraDetectada[0]);
 
-                    // Si ya era la letra esperada, este caso ya debería haber sido tomado
-                    // por el bloque anterior. Lo salteamos para evitar duplicados.
+                    // Si ya era la letra esperada, este caso ya lo toma el bloque anterior.
                     if (letraOcr == letraEsperada)
                         continue;
 
                     string cuerpo = cuerpoDetectado.Trim().ToLowerInvariant();
                     cuerpo = Regex.Replace(cuerpo, @"\s+", "");
 
-                    cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
+                    NormalizarSoloNumeroCifDesdeOcr(cuerpo, letraEsperada);
 
                     string codigoFinal = letraEsperada + cuerpo;
                     codigoFinal = NormalizarCodigosCif(codigoFinal);
@@ -653,7 +642,13 @@ namespace Indexador_GCBA_.Servicios
                         if (!codigos.Contains(codigoFinal))
                         {
                             codigos.Add(codigoFinal);
+                            rangosYaTomados.Add(new Tuple<int, int>(m.Index, m.Length));
+
                             System.Diagnostics.Debug.Print("[CIF OCR] Aceptado con letra inicial corregida: " + codigoFinal);
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.Print("[CIF OCR] Ya existía, no se duplica: " + codigoFinal);
                         }
                     }
                     else
@@ -665,16 +660,15 @@ namespace Indexador_GCBA_.Servicios
 
             // ==========================================================
             // 2) Códigos donde el OCR pudo haber perdido la letra.
-            // Se mantiene más restrictivo para evitar falsos positivos.
             //
-            // Ejemplos:
-            // 73023.373 -> s73023.373
-            // 1201.+3   -> e1201.+3
-            // 240.23    -> d240.23
+            // Importante:
+            // - No debe volver a tomar códigos ya encontrados con letra.
+            // - No debe aceptar candidatos que arranquen con letra.
             // ==========================================================
             string patronSinLetra =
                 @"(?<![a-zA-Z0-9])" +
-                @"[" + digitoOcr + @"]{2,6}" +
+                @"[" + digitoOcrInicioSinLetra + @"]" +
+                @"[" + digitoOcr + @"]{1,5}" +
                 @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){1,3}" +
                 @"(?:" +
                     @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
@@ -686,8 +680,28 @@ namespace Indexador_GCBA_.Servicios
 
             foreach (Match m in Regex.Matches(t, patronSinLetra, RegexOptions.IgnoreCase))
             {
-                string candidatoCrudo = m.Value;
-                string numero = NormalizarSoloNumeroCifDesdeOcr(candidatoCrudo.Replace(" ", ""));
+                if (HaySolapamientoConRangosTomados(m.Index, m.Length, rangosYaTomados))
+                {
+                    System.Diagnostics.Debug.Print("[CIF OCR] Candidato sin letra omitido por solapamiento: " + m.Value);
+                    continue;
+                }
+
+                string candidatoCrudo = m.Value.Trim();
+
+                if (string.IsNullOrWhiteSpace(candidatoCrudo))
+                    continue;
+
+                // Defensa extra:
+                // si empieza con letra, no es realmente un candidato sin letra.
+                if (char.IsLetter(candidatoCrudo[0]))
+                {
+                    System.Diagnostics.Debug.Print("[CIF OCR] Candidato sin letra descartado porque empieza con letra: " + candidatoCrudo);
+                    continue;
+                }
+
+                string numero = NormalizarSoloNumeroCifDesdeOcr(
+           candidatoCrudo.Replace(" ", ""),
+           letraEsperada);
 
                 string codigoFinal = letraEsperada + numero;
                 codigoFinal = NormalizarCodigosCif(codigoFinal);
@@ -700,6 +714,10 @@ namespace Indexador_GCBA_.Servicios
                     {
                         codigos.Add(codigoFinal);
                         System.Diagnostics.Debug.Print("[CIF OCR] Aceptado sin letra: " + codigoFinal);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.Print("[CIF OCR] Ya existía, no se duplica: " + codigoFinal);
                     }
                 }
                 else
@@ -715,6 +733,28 @@ namespace Indexador_GCBA_.Servicios
 
             return resultado;
         }
+        private static bool HaySolapamientoConRangosTomados(
+    int indice,
+    int longitud,
+    List<Tuple<int, int>> rangosYaTomados)
+        {
+            int inicio = indice;
+            int fin = indice + longitud;
+
+            foreach (Tuple<int, int> rango in rangosYaTomados)
+            {
+                int inicioTomado = rango.Item1;
+                int finTomado = rango.Item1 + rango.Item2;
+
+                bool solapa = inicio < finTomado && fin > inicioTomado;
+
+                if (solapa)
+                    return true;
+            }
+
+            return false;
+        }
+
         private static string NormalizarCandidatoCifOcr(string candidato, char letraEsperada)
         {
             letraEsperada = char.ToLowerInvariant(letraEsperada);
@@ -752,7 +792,8 @@ namespace Indexador_GCBA_.Servicios
                  .Replace(".+.-", ".-");
 
             string cuerpo = p.Substring(1);
-            cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo);
+
+            cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo, letraEsperada);
 
             p = letraEsperada + cuerpo;
 
@@ -768,15 +809,101 @@ namespace Indexador_GCBA_.Servicios
 
 
 
-        private static string NormalizarSoloNumeroCifDesdeOcr(string texto)
+        private static string NormalizarSoloNumeroCifDesdeOcr(string texto, char letraEsperada)
         {
+            letraEsperada = char.ToLowerInvariant(letraEsperada);
+
             if (string.IsNullOrWhiteSpace(texto))
                 return string.Empty;
 
-            // Caso típico:
-            // e5S700 debería terminar como e5700, no como e57700.
-            // Entonces, si aparece S antes de 7, se interpreta como ruido duplicado.
-            texto = Regex.Replace(texto, @"(?i)s(?=7)", "");
+            string original = texto;
+
+            // ==========================================================
+            // REGLA IMPORTANTE:
+            //
+            // Si la letra esperada es 's' estamos en Estructuras corporales.
+            // En ese caso NO conviene convertir s/S dentro del cuerpo numérico,
+            // porque puede generar falsos códigos como:
+            // s110.888 -> s7110.888
+            //
+            // Si la letra esperada es b, d o e, estamos en:
+            // b = Funciones corporales
+            // d = Actividad y participación
+            // e = Factores ambientales
+            //
+            // En esos casos una S dentro del cuerpo suele ser ruido OCR o un 5 mal leído.
+            // ==========================================================
+
+            if (letraEsperada == 's')
+            {
+                texto = NormalizarCaracteresNumericosCifBasico(texto, convertirS: false);
+
+                texto = new string(
+                    texto
+                        .Where(c => char.IsDigit(c) || c == '.' || c == '+' || c == '-')
+                        .ToArray());
+
+                return texto;
+            }
+
+            // ==========================================================
+            // Para b, d y e probamos alternativas.
+            // El caso típico es:
+            //
+            // eS5700.+2
+            //
+            // Alternativa correcta probable:
+            // e5700.+2
+            //
+            // No hacemos solamente S -> 5 porque:
+            // S5700 -> 55700, que puede quedar inválido por longitud.
+            // ==========================================================
+
+            List<string> alternativas = new List<string>();
+
+            // Alternativa 1:
+            // Si la S está inmediatamente al inicio del cuerpo y antes de un número,
+            // se interpreta como ruido pegado a la letra CIF.
+            // eS5700.+2 -> 5700.+2
+            string sinSInicialPegada = Regex.Replace(original, @"^[sS](?=\d)", "");
+            alternativas.Add(sinSInicialPegada);
+
+            // Alternativa 2:
+            // Caso interno tipo e5S700, donde la S puede ser ruido antes de 7.
+            // e5S700 -> e5700
+            string sinSAntesDe7 = Regex.Replace(original, @"(?i)s(?=7)", "");
+            alternativas.Add(sinSAntesDe7);
+
+            // Alternativa 3:
+            // S/s como posible 5.
+            string sComo5 = Regex.Replace(original, @"[sS]", "5");
+            alternativas.Add(sComo5);
+
+            // Alternativa 4:
+            // Fallback viejo: S/s como 7.
+            string sComo7 = Regex.Replace(original, @"[sS]", "7");
+            alternativas.Add(sComo7);
+
+            foreach (string alternativa in alternativas)
+            {
+                string normalizada = NormalizarCaracteresNumericosCifBasico(alternativa, convertirS: false);
+
+                normalizada = new string(
+                    normalizada
+                        .Where(c => char.IsDigit(c) || c == '.' || c == '+' || c == '-')
+                        .ToArray());
+
+                if (!string.IsNullOrWhiteSpace(normalizada))
+                    return normalizada;
+            }
+
+            return string.Empty;
+        }
+
+        private static string NormalizarCaracteresNumericosCifBasico(string texto, bool convertirS)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
 
             char[] chars = texto.ToCharArray();
 
@@ -796,21 +923,13 @@ namespace Indexador_GCBA_.Servicios
                 {
                     chars[i] = '1';
                 }
-                else if (c == 's' || c == 'S')
+                else if (convertirS && (c == 's' || c == 'S'))
                 {
-                    chars[i] = '7';
+                    chars[i] = '5';
                 }
             }
 
-            string normalizado = new string(chars);
-
-            // Conserva solo lo necesario para códigos CIF.
-            normalizado = new string(
-                normalizado
-                    .Where(c => char.IsDigit(c) || c == '.' || c == '+' || c == '-')
-                    .ToArray());
-
-            return normalizado;
+            return new string(chars);
         }
 
         private static bool CodigoCifOcrPareceValido(string codigo, char letraEsperada)
@@ -1161,12 +1280,22 @@ namespace Indexador_GCBA_.Servicios
         {
             letraEsperada = char.ToLowerInvariant(letraEsperada);
 
-            // En estructuras corporales aparecen códigos como:
+            // Estructuras corporales:
+            // s4101.370
             // s73023.373
             // s75002.372
             if (letraEsperada == 's')
                 return 5;
 
+            // Funciones corporales:
+            // b167.3
+            // b28016.3
+            if (letraEsperada == 'b')
+                return 5;
+
+            // Actividad/participación y factores ambientales:
+            // d240.23
+            // e5801.+3
             return 4;
         }
 

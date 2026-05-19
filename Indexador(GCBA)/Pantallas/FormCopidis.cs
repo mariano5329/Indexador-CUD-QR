@@ -102,7 +102,7 @@ namespace Indexador_GCBA_
         private const int FACTOR_RENDER_OCR_CUADRANTE = 4;
         private const int DPI_RENDER_OCR_CUADRANTE = 300;
         private const int MAX_LADO_RENDER_OCR_CUADRANTE = 4200;
-
+        private bool _configurandoBloquesCertificado = false;
 
         private enum EstadoCuadranteOcr
         {
@@ -113,6 +113,10 @@ namespace Indexador_GCBA_
             ConfirmadoVerde,
             ErrorNaranja
         }
+
+       
+
+
         private Bitmap RenderizarPdfActualAltaDefinicionParaOcr()
         {
             if (string.IsNullOrWhiteSpace(RutaNombreImagen))
@@ -234,9 +238,10 @@ namespace Indexador_GCBA_
 
             _toolTipCud.AutoPopDelay = 8000;
             _toolTipCud.InitialDelay = 300;
-            _toolTipCud.ReshowDelay = 100;      
+            _toolTipCud.ReshowDelay = 100;
 
             ConfigurarCombosCud();
+            ConfigurarBloquesNumeroCertificado();
             ConfigurarEventosCud();
             ConfigurarOrdenTabulacionCud();
 
@@ -245,7 +250,7 @@ namespace Indexador_GCBA_
             RestaurarColoresFormularioCud();
         }
 
-      
+   
 
         private void ConfigurarCombosCud()
         {
@@ -384,25 +389,31 @@ namespace Indexador_GCBA_
             if (dni.Length < 7 || dni.Length > 8)
                 return;
 
-            string numero = IndexadorCudService.NormalizarNumeroCertificado(TxtNumeCert.Text);
-
-            if (string.IsNullOrWhiteSpace(numero))
+            // Si todavía no hay número certificado en bloques, no inventamos todo.
+            // Solo actualizamos el bloque DNI si el certificado ya tiene estructura mínima.
+            if (string.IsNullOrWhiteSpace(TxtCertBloque2.Text) ||
+                string.IsNullOrWhiteSpace(TxtCertBloque4.Text) ||
+                string.IsNullOrWhiteSpace(TxtCertBloque5.Text))
+            {
                 return;
+            }
 
-            string[] partes = numero.Split('-');
+            _sincronizandoCamposCud = true;
 
-            // Formato esperado:
-            // ARG-02-00011132502-20231219-20321219-CBA-536
-            if (partes.Length != 7)
-                return;
+            try
+            {
+                TxtCertBloque3.Text = dni.PadLeft(11, '0');
+                TxtNumeCert.Text = ReconstruirNumeroCertificadoDesdeBloques();
+                _ultimoDniAuto = dni;
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
 
-            // Solo tocamos el segmento DNI, no reconstruimos todo.
-            partes[2] = dni.PadLeft(11, '0');
-
-            string nuevoNumero = string.Join("-", partes);
-
-            TxtNumeCert.Text = nuevoNumero;
-            _ultimoDniAuto = dni;
+            MarcarCampoAuto(
+                TxtCertBloque3,
+                "Bloque DNI del certificado sincronizado con el DNI cargado.");
 
             MarcarCampoAuto(
                 TxtNumeCert,
@@ -412,24 +423,29 @@ namespace Indexador_GCBA_
 
         private void ConfigurarOrdenTabulacionCud()
         {
-            TxtNumeCert.TabIndex = 0;
-            TxtApellidoNombre.TabIndex = 1;
-            CmbSexo.TabIndex = 2;
-            TxtNumDNI.TabIndex = 3;
-            TxtNumCuil.TabIndex = 4;
-            TxtFechaNac.TabIndex = 5;
-            TxtDiagnostico.TabIndex = 6;
-            TxtFuncionesCorporales.TabIndex = 7;
-            TxtEstructurasCorporales.TabIndex = 8;
-            TxtActividad_Particip.TabIndex = 9;
-            TxtFactoresAmbientales.TabIndex = 10;
+            TxtCertBloque1.TabIndex = 0;
+            TxtCertBloque2.TabIndex = 1;
+            TxtCertBloque3.TabIndex = 2;
+            TxtCertBloque4.TabIndex = 3;
+            TxtCertBloque5.TabIndex = 4;
+            TxtCertBloque6.TabIndex = 5;
+            TxtCertBloque7.TabIndex = 6;
 
-            // ORDEN CORRECTO FINAL
-            TxtOrientacion.TabIndex = 11;
-            TxtFechaVencimiento.TabIndex = 12;
-            CmbAcomapante.TabIndex = 13;
-            TxtFechaEmision.TabIndex = 14;
-            btnGrabar.TabIndex = 15;
+            TxtApellidoNombre.TabIndex = 7;
+            CmbSexo.TabIndex = 8;
+            TxtNumDNI.TabIndex = 9;
+            TxtNumCuil.TabIndex = 10;
+            TxtFechaNac.TabIndex = 11;
+            TxtDiagnostico.TabIndex = 12;
+            TxtFuncionesCorporales.TabIndex = 13;
+            TxtEstructurasCorporales.TabIndex = 14;
+            TxtActividad_Particip.TabIndex = 15;
+            TxtFactoresAmbientales.TabIndex = 16;
+            TxtOrientacion.TabIndex = 17;
+            TxtFechaVencimiento.TabIndex = 18;
+            CmbAcomapante.TabIndex = 19;
+            TxtFechaEmision.TabIndex = 20;
+            btnGrabar.TabIndex = 21;
 
             foreach (Control c in ObtenerControlesCargaCud())
             {
@@ -443,7 +459,14 @@ namespace Indexador_GCBA_
         {
             return new List<Control>
     {
-        TxtNumeCert,
+        TxtCertBloque1,
+        TxtCertBloque2,
+        TxtCertBloque3,
+        TxtCertBloque4,
+        TxtCertBloque5,
+        TxtCertBloque6,
+        TxtCertBloque7,
+
         TxtApellidoNombre,
         CmbSexo,
         TxtNumDNI,
@@ -454,8 +477,6 @@ namespace Indexador_GCBA_
         TxtEstructurasCorporales,
         TxtActividad_Particip,
         TxtFactoresAmbientales,
-
-        // ORDEN CORRECTO FINAL
         TxtOrientacion,
         TxtFechaVencimiento,
         CmbAcomapante,
@@ -636,6 +657,7 @@ namespace Indexador_GCBA_
                 if (datosNumero.EsValido)
                 {
                     TxtNumeCert.Text = datosNumero.NumeroNormalizado;
+                    CargarBloquesNumeroCertificadoDesdeTexto(datosNumero.NumeroNormalizado);
 
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] Cargado: " + datosNumero.NumeroNormalizado);
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] DNI interno: " + datosNumero.Dni);
@@ -1329,7 +1351,7 @@ namespace Indexador_GCBA_
                 CargarDatosPreprocesamientoSiExisten(RutaNombreImagen);
             }
 
-            TxtNumeCert.Focus();
+            TxtCertBloque2.Focus();
         }
 
         private void CargarDatosFijosIndice()
@@ -1860,10 +1882,70 @@ namespace Indexador_GCBA_
 
         private bool ValidarFormularioCudCompleto()
         {
+            // ==========================================================
+            // 1) RECONSTRUIR NÚMERO DESDE BLOQUES
+            // IMPORTANTE:
+            // validarYTriangular = false para NO pisar todavía
+            // TxtFechaEmision / TxtFechaVencimiento / TxtNumDNI.
+            // ==========================================================
+
+            if (!SincronizarNumeroCertificadoDesdeBloques(validarYTriangular: false))
+            {
+                MessageBox.Show(
+                    "El número de certificado no es válido. Revise los bloques del certificado.",
+                    "Validación CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                TxtCertBloque1.Focus();
+                return false;
+            }
+
+            DatosNumeroCertificadoCud datosNumero =
+                IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
+
+            if (datosNumero == null || !datosNumero.EsValido)
+            {
+                MarcarBloquesNumeroCertificado(
+                    ResultadoValidacion.Error(
+                        datosNumero == null
+                            ? "Número de certificado inválido."
+                            : datosNumero.Mensaje));
+
+                MessageBox.Show(
+                    "El número de certificado no es válido. Revise los bloques del certificado.",
+                    "Validación CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                TxtCertBloque1.Focus();
+                return false;
+            }
+
+            // ==========================================================
+            // 2) NORMALIZAR FORMULARIO
+            // Ya con TxtNumeCert reconstruido.
+            // ==========================================================
+
             NormalizarFormularioCudCompleto();
 
             Control primerError = null;
             bool valido = true;
+
+            // ==========================================================
+            // 3) VALIDAR COHERENCIA ENTRE CERTIFICADO Y TEXTBOX
+            // Acá validamos que:
+            // - DNI coincida con el bloque DNI del certificado.
+            // - Fecha emisión coincida con la fecha del certificado.
+            // - Fecha vencimiento coincida con la fecha del certificado.
+            //
+            // Si el TextBox está vacío, se autocompleta.
+            // Si tiene otro valor, se marca como error.
+            // ==========================================================
+
+            valido &= ValidarCoherenciaNumeroCertificadoContraPantalla(
+                datosNumero,
+                ref primerError);
 
             // ==========================================================
             // CAMPOS OBLIGATORIOS
@@ -2010,6 +2092,128 @@ namespace Indexador_GCBA_
 
             return true;
         }
+        private bool ValidarCoherenciaNumeroCertificadoContraPantalla(
+    DatosNumeroCertificadoCud datosNumero,
+    ref Control primerError)
+        {
+            if (datosNumero == null || !datosNumero.EsValido)
+                return false;
+
+            bool valido = true;
+
+            // ==========================================================
+            // DNI
+            // ==========================================================
+
+            string dniPantalla = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
+            string dniCertificado = IndexadorCudService.NormalizarDni(datosNumero.Dni);
+
+            if (string.IsNullOrWhiteSpace(dniPantalla))
+            {
+                TxtNumDNI.Text = dniCertificado;
+                _ultimoDniAuto = dniCertificado;
+
+                MarcarCampoAuto(
+                    TxtNumDNI,
+                    "DNI autocompletado desde número de certificado.");
+            }
+            else if (!dniPantalla.Equals(dniCertificado, StringComparison.OrdinalIgnoreCase))
+            {
+                valido = false;
+
+                ResultadoValidacion r = ResultadoValidacion.Error(
+                    "El DNI cargado no coincide con el DNI incluido en el número de certificado.");
+
+                MarcarCampo(TxtNumDNI, r);
+                MarcarCampo(TxtCertBloque3, r);
+
+                if (primerError == null)
+                    primerError = TxtNumDNI;
+            }
+
+            // ==========================================================
+            // FECHA EMISIÓN
+            // datosNumero.FechaEmision ya viene como dd/MM/yyyy.
+            // ==========================================================
+
+            string emisionPantalla = IndexadorCudService.NormalizarFechaCud(
+                TxtFechaEmision.Text,
+                TipoFechaCud.Emision);
+
+            string emisionCertificado = IndexadorCudService.NormalizarFechaCud(
+                datosNumero.FechaEmision,
+                TipoFechaCud.Emision);
+
+            if (string.IsNullOrWhiteSpace(emisionPantalla))
+            {
+                TxtFechaEmision.Text = emisionCertificado;
+                _ultimaEmisionAuto = emisionCertificado;
+
+                MarcarCampoAuto(
+                    TxtFechaEmision,
+                    "Fecha de emisión autocompletada desde número de certificado.");
+            }
+            else if (!emisionPantalla.Equals(emisionCertificado, StringComparison.OrdinalIgnoreCase))
+            {
+                valido = false;
+
+                ResultadoValidacion r = ResultadoValidacion.Error(
+                    "La fecha de emisión cargada no coincide con la fecha incluida en el número de certificado.");
+
+                MarcarCampo(TxtFechaEmision, r);
+                MarcarCampo(TxtCertBloque4, r);
+
+                if (primerError == null)
+                    primerError = TxtFechaEmision;
+            }
+            else
+            {
+                TxtFechaEmision.Text = emisionPantalla;
+            }
+
+            // ==========================================================
+            // FECHA VENCIMIENTO
+            // datosNumero.FechaVencimiento ya viene como dd/MM/yyyy.
+            // ==========================================================
+
+            string vencimientoPantalla = IndexadorCudService.NormalizarFechaCud(
+                TxtFechaVencimiento.Text,
+                TipoFechaCud.Vencimiento);
+
+            string vencimientoCertificado = IndexadorCudService.NormalizarFechaCud(
+                datosNumero.FechaVencimiento,
+                TipoFechaCud.Vencimiento);
+
+            if (string.IsNullOrWhiteSpace(vencimientoPantalla))
+            {
+                TxtFechaVencimiento.Text = vencimientoCertificado;
+                _ultimoVencimientoAuto = vencimientoCertificado;
+
+                MarcarCampoAuto(
+                    TxtFechaVencimiento,
+                    "Fecha de vencimiento autocompletada desde número de certificado.");
+            }
+            else if (!vencimientoPantalla.Equals(vencimientoCertificado, StringComparison.OrdinalIgnoreCase))
+            {
+                valido = false;
+
+                ResultadoValidacion r = ResultadoValidacion.Error(
+                    "La fecha de vencimiento cargada no coincide con la fecha incluida en el número de certificado.");
+
+                MarcarCampo(TxtFechaVencimiento, r);
+                MarcarCampo(TxtCertBloque5, r);
+
+                if (primerError == null)
+                    primerError = TxtFechaVencimiento;
+            }
+            else
+            {
+                TxtFechaVencimiento.Text = vencimientoPantalla;
+            }
+
+            return valido;
+        }
+
         private ResultadoValidacion ValidarCuilOpcionalPantalla()
         {
             string cuil = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
@@ -2029,7 +2233,9 @@ namespace Indexador_GCBA_
         {
             _normalizandoCud = true;
 
+            SincronizarNumeroCertificadoDesdeBloques(validarYTriangular: false);
             TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(TxtNumeCert.Text);
+
             TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(TxtApellidoNombre.Text);
             TxtNumDNI.Text = IndexadorCudService.NormalizarDni(TxtNumDNI.Text);
             TxtNumCuil.Text = IndexadorCudService.NormalizarCuil(TxtNumCuil.Text);
@@ -2594,6 +2800,7 @@ namespace Indexador_GCBA_
                 _idCudEditando = Convert.ToInt32(row["Id"]);
 
                 TxtNumeCert.Text = ValorRow(row, "NumeroCertificado");
+                CargarBloquesNumeroCertificadoDesdeTexto(TxtNumeCert.Text);
                 TxtApellidoNombre.Text = ValorRow(row, "ApellidoNombre");
                 TxtNumDNI.Text = ValorRow(row, "DNI");
                 TxtNumCuil.Text = ValorRow(row, "CUIL");
@@ -2644,10 +2851,14 @@ namespace Indexador_GCBA_
 
             _cargandoDatosCud = true;
 
-            if (destino == TxtNumeCert)
+            if (destino == TxtNumeCert || EsBloqueNumeroCertificado(destino))
             {
-                TxtNumeCert.Text = IndexadorCudService.NormalizarNumeroCertificado(textoOcr);
+                string numero = IndexadorCudService.NormalizarNumeroCertificado(textoOcr);
+
+                TxtNumeCert.Text = numero;
+                CargarBloquesNumeroCertificadoDesdeTexto(numero);
             }
+
             else if (destino == TxtApellidoNombre)
             {
                 TxtApellidoNombre.Text = IndexadorCudService.NormalizarNombreApellido(textoOcr);
@@ -2727,7 +2938,7 @@ namespace Indexador_GCBA_
             // SINCRONIZACIONES POST-OCR
             // ======================================================
 
-            if (destino == TxtNumeCert)
+            if (destino == TxtNumeCert || EsBloqueNumeroCertificado(destino))
             {
                 DatosNumeroCertificadoCud datos =
                     IndexadorCudService.ParseNumeroCertificado(TxtNumeCert.Text);
@@ -2776,6 +2987,14 @@ namespace Indexador_GCBA_
             _cargandoDatosCud = true;
             _idCudEditando = 0;
             TxtNumeCert.Clear();
+            TxtCertBloque1.Text = "ARG";
+            TxtCertBloque2.Clear();
+            TxtCertBloque3.Clear();
+            TxtCertBloque4.Clear();
+            TxtCertBloque5.Clear();
+            TxtCertBloque6.Text = "CBA";
+            TxtCertBloque7.Text = "536";
+
             TxtApellidoNombre.Clear();
             TxtNumDNI.Clear();
             TxtNumCuil.Clear();
@@ -3347,8 +3566,17 @@ namespace Indexador_GCBA_
             //
             // Estos valores son iniciales. Luego los ajustamos mirando el CUD real.
 
-            _zonasSugeridasOcrCud[TxtNumeCert] =
-                new RectangleF(0.49f, 0.052f, 0.46f, 0.038f);
+            RectangleF zonaNumeroCertificado = new RectangleF(0.49f, 0.052f, 0.46f, 0.038f);
+
+            _zonasSugeridasOcrCud[TxtNumeCert] = zonaNumeroCertificado;
+
+            _zonasSugeridasOcrCud[TxtCertBloque1] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque2] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque3] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque4] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque5] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque6] = zonaNumeroCertificado;
+            _zonasSugeridasOcrCud[TxtCertBloque7] = zonaNumeroCertificado;
 
             _zonasSugeridasOcrCud[TxtApellidoNombre] =
                 new RectangleF(0.27f, 0.11f, 0.30f, 0.025f);
@@ -3960,7 +4188,7 @@ namespace Indexador_GCBA_
         {
             string crudo = textoOcr ?? string.Empty;
 
-            if (destino == TxtNumeCert)
+            if (destino == TxtNumeCert || EsBloqueNumeroCertificado(destino))
                 return PrepararOcrNumeroCertificado(crudo, confianza);
 
             if (destino == TxtNumDNI)
@@ -4029,6 +4257,8 @@ namespace Indexador_GCBA_
 
             return ResultadoAplicacionOcr.Ok(cert, "Número de certificado OCR válido.");
         }
+
+
         private ResultadoAplicacionOcr PrepararOcrDni(string textoOcr, float confianza)
         {
             string digitos = ExtraerDigitos(textoOcr);
@@ -4985,6 +5215,465 @@ namespace Indexador_GCBA_
         private void button16_Click(object sender, EventArgs e)
         {
             LimpiarCampoCud(TxtFechaEmision);
+        }
+
+
+
+        // PARTE NUEVA DIVISION DEL NUMERO DE CERTIFICADO EN BLOQUES PARA MEJORAR OCR Y VALIDACION
+
+
+       
+        private void ConfigurarBloquesNumeroCertificado()
+        {
+            _configurandoBloquesCertificado = true;
+
+            try
+            {
+                // Valores por defecto
+                TxtCertBloque1.Text = "ARG";
+                TxtCertBloque6.Text = "CBA";
+                TxtCertBloque7.Text = "536";
+
+                // Largo máximo por bloque
+                TxtCertBloque1.MaxLength = 3;   // ARG
+                TxtCertBloque2.MaxLength = 2;   // 01 / 02
+                TxtCertBloque3.MaxLength = 11;  // DNI interno con ceros
+                TxtCertBloque4.MaxLength = 8;   // Fecha emisión yyyyMMdd
+                TxtCertBloque5.MaxLength = 8;   // Fecha vencimiento yyyyMMdd
+                TxtCertBloque6.MaxLength = 3;   // CBA
+                TxtCertBloque7.MaxLength = 3;   // 536
+
+                // Mayúsculas
+                TxtCertBloque1.CharacterCasing = CharacterCasing.Upper;
+                TxtCertBloque6.CharacterCasing = CharacterCasing.Upper;
+
+                // Alineación visual
+                TxtCertBloque1.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque2.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque3.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque4.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque5.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque6.TextAlign = HorizontalAlignment.Center;
+                TxtCertBloque7.TextAlign = HorizontalAlignment.Center;
+
+                // Evita que el usuario modifique los bloques que casi siempre son fijos.
+                // Si preferís dejarlos editables, cambiá ReadOnly = false.
+                TxtCertBloque1.ReadOnly = false;
+                TxtCertBloque6.ReadOnly = false;
+                TxtCertBloque7.ReadOnly = false;
+
+                // Escritura permitida
+                TxtCertBloque1.KeyPress += KeyPressLetrasCertificadoCud;
+                TxtCertBloque6.KeyPress += KeyPressLetrasCertificadoCud;
+
+                TxtCertBloque2.KeyPress += KeyPressSoloNumerosCud;
+                TxtCertBloque3.KeyPress += KeyPressSoloNumerosCud;
+                TxtCertBloque4.KeyPress += KeyPressSoloNumerosCud;
+                TxtCertBloque5.KeyPress += KeyPressSoloNumerosCud;
+                TxtCertBloque7.KeyPress += KeyPressSoloNumerosCud;
+
+                // TextChanged con salto automático
+                TxtCertBloque1.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque2.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque3.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque4.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque5.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque6.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+                TxtCertBloque7.TextChanged += BloqueNumeroCertificado_TextChangedCud;
+
+                // Leave para normalizar cada bloque
+                TxtCertBloque1.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque2.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque3.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque4.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque5.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque6.Leave += BloqueNumeroCertificado_LeaveCud;
+                TxtCertBloque7.Leave += BloqueNumeroCertificado_LeaveCud;
+
+                // Navegación Enter / flechas
+                TxtCertBloque1.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque2.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque3.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque4.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque5.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque6.KeyDown += ControlCarga_KeyDownCud;
+                TxtCertBloque7.KeyDown += ControlCarga_KeyDownCud;
+
+                _toolTipCud.SetToolTip(TxtCertBloque1, "Prefijo del certificado. Normalmente ARG.");
+                _toolTipCud.SetToolTip(TxtCertBloque2, "Tipo de certificado. Ingrese 01 o 02.");
+                _toolTipCud.SetToolTip(TxtCertBloque3, "DNI interno. Puede cargar el DNI sin ceros; al salir se completa a 11 dígitos.");
+                _toolTipCud.SetToolTip(TxtCertBloque4, "Fecha de emisión en formato AAAAMMDD.");
+                _toolTipCud.SetToolTip(TxtCertBloque5, "Fecha de vencimiento en formato AAAAMMDD.");
+                _toolTipCud.SetToolTip(TxtCertBloque6, "Jurisdicción. Normalmente CBA.");
+                _toolTipCud.SetToolTip(TxtCertBloque7, "Código final. Normalmente 536.");
+            }
+            finally
+            {
+                _configurandoBloquesCertificado = false;
+            }
+        }
+        private void KeyPressLetrasCertificadoCud(object sender, KeyPressEventArgs e)
+        {
+            if (char.IsControl(e.KeyChar))
+                return;
+
+            if (!char.IsLetter(e.KeyChar))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            e.KeyChar = char.ToUpperInvariant(e.KeyChar);
+        }
+        private void BloqueNumeroCertificado_TextChangedCud(object sender, EventArgs e)
+        {
+            if (_cargandoDatosCud || _normalizandoCud || _sincronizandoCamposCud || _configurandoBloquesCertificado)
+                return;
+
+            TextBox txt = sender as TextBox;
+
+            if (txt == null)
+                return;
+
+            NormalizarBloqueCertificadoEnVivo(txt);
+
+            string numero = ReconstruirNumeroCertificadoDesdeBloques();
+
+            _sincronizandoCamposCud = true;
+
+            try
+            {
+                TxtNumeCert.Text = numero;
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
+
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(numero);
+
+            if (datos.EsValido)
+            {
+                MarcarBloquesNumeroCertificado(
+                    ResultadoValidacion.Ok("Número de certificado válido."));
+            }
+            else
+            {
+                LimpiarErroresBloquesNumeroCertificado();
+            }
+
+            AvanzarSiBloqueCertificadoCompleto(txt);
+        }
+        private void NormalizarBloqueCertificadoEnVivo(TextBox txt)
+        {
+            if (txt == null)
+                return;
+
+            string original = txt.Text;
+            string limpio = original;
+
+            if (txt == TxtCertBloque1 || txt == TxtCertBloque6)
+            {
+                limpio = Regex.Replace(original.ToUpperInvariant(), @"[^A-Z]", "");
+            }
+            else
+            {
+                limpio = Regex.Replace(original, @"\D", "");
+            }
+
+            if (limpio == original)
+                return;
+
+            int pos = txt.SelectionStart;
+
+            _sincronizandoCamposCud = true;
+
+            try
+            {
+                txt.Text = limpio;
+                txt.SelectionStart = Math.Min(pos, txt.Text.Length);
+                txt.SelectionLength = 0;
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
+        }
+
+        private void BloqueNumeroCertificado_LeaveCud(object sender, EventArgs e)
+        {
+            TextBox txt = sender as TextBox;
+
+            if (txt == null)
+                return;
+
+            NormalizarBloqueCertificadoAlSalir(txt);
+
+            SincronizarNumeroCertificadoDesdeBloques(validarYTriangular: true);
+        }
+        private void NormalizarBloqueCertificadoAlSalir(TextBox txt)
+        {
+            if (txt == null)
+                return;
+
+            _sincronizandoCamposCud = true;
+
+            try
+            {
+                if (txt == TxtCertBloque1)
+                {
+                    txt.Text = Regex.Replace(txt.Text.ToUpperInvariant(), @"[^A-Z]", "");
+
+                    if (string.IsNullOrWhiteSpace(txt.Text))
+                        txt.Text = "ARG";
+                }
+                else if (txt == TxtCertBloque2)
+                {
+                    string tipo = Regex.Replace(txt.Text, @"\D", "");
+
+                    if (tipo.Length == 1)
+                        tipo = tipo.PadLeft(2, '0');
+
+                    txt.Text = tipo;
+                }
+                else if (txt == TxtCertBloque3)
+                {
+                    string dni = Regex.Replace(txt.Text, @"\D", "");
+
+                    if (!string.IsNullOrWhiteSpace(dni) && dni.Length <= 11)
+                        dni = dni.PadLeft(11, '0');
+
+                    txt.Text = dni;
+                }
+                else if (txt == TxtCertBloque4 || txt == TxtCertBloque5)
+                {
+                    txt.Text = Regex.Replace(txt.Text, @"\D", "");
+                }
+                else if (txt == TxtCertBloque6)
+                {
+                    txt.Text = Regex.Replace(txt.Text.ToUpperInvariant(), @"[^A-Z]", "");
+
+                    if (string.IsNullOrWhiteSpace(txt.Text))
+                        txt.Text = "CBA";
+                }
+                else if (txt == TxtCertBloque7)
+                {
+                    string final = Regex.Replace(txt.Text, @"\D", "");
+
+                    if (string.IsNullOrWhiteSpace(final))
+                        final = "536";
+
+                    txt.Text = final;
+                }
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
+        }
+        private string ReconstruirNumeroCertificadoDesdeBloques()
+        {
+            string b1 = (TxtCertBloque1.Text ?? "").Trim().ToUpperInvariant();
+            string b2 = Regex.Replace(TxtCertBloque2.Text ?? "", @"\D", "");
+            string b3 = Regex.Replace(TxtCertBloque3.Text ?? "", @"\D", "");
+            string b4 = Regex.Replace(TxtCertBloque4.Text ?? "", @"\D", "");
+            string b5 = Regex.Replace(TxtCertBloque5.Text ?? "", @"\D", "");
+            string b6 = (TxtCertBloque6.Text ?? "").Trim().ToUpperInvariant();
+            string b7 = Regex.Replace(TxtCertBloque7.Text ?? "", @"\D", "");
+
+            if (string.IsNullOrWhiteSpace(b1))
+                b1 = "ARG";
+
+            if (string.IsNullOrWhiteSpace(b6))
+                b6 = "CBA";
+
+            if (string.IsNullOrWhiteSpace(b7))
+                b7 = "536";
+
+            if (!string.IsNullOrWhiteSpace(b3) && b3.Length <= 11)
+                b3 = b3.PadLeft(11, '0');
+
+            string numero = $"{b1}-{b2}-{b3}-{b4}-{b5}-{b6}-{b7}";
+
+            return IndexadorCudService.NormalizarNumeroCertificado(numero);
+        }
+
+        private void CargarBloquesNumeroCertificadoDesdeTexto(string numeroCertificado)
+        {
+            string n = IndexadorCudService.NormalizarNumeroCertificado(numeroCertificado);
+
+            string[] partes = n.Split('-');
+
+            if (partes.Length != 7)
+            {
+                Debug.WriteLine("[CERT BLOQUES] No se pudo dividir número certificado: " + numeroCertificado);
+                return;
+            }
+
+            _sincronizandoCamposCud = true;
+
+            try
+            {
+                TxtCertBloque1.Text = partes[0];
+                TxtCertBloque2.Text = partes[1];
+                TxtCertBloque3.Text = partes[2];
+                TxtCertBloque4.Text = partes[3];
+                TxtCertBloque5.Text = partes[4];
+                TxtCertBloque6.Text = partes[5];
+                TxtCertBloque7.Text = partes[6];
+
+                TxtNumeCert.Text = n;
+
+                Debug.WriteLine("[CERT BLOQUES] Número dividido correctamente: " + n);
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
+        }
+        private void AvanzarSiBloqueCertificadoCompleto(TextBox txt)
+        {
+            if (txt == null)
+                return;
+
+            if (!txt.Focused)
+                return;
+
+            if (txt == TxtCertBloque1 && txt.Text.Length == 3)
+            {
+                TxtCertBloque2.Focus();
+                TxtCertBloque2.SelectAll();
+                return;
+            }
+
+            if (txt == TxtCertBloque2 && txt.Text.Length == 2)
+            {
+                TxtCertBloque3.Focus();
+                TxtCertBloque3.SelectAll();
+                return;
+            }
+
+            // En DNI no conviene saltar con 8 dígitos porque al salir se completa a 11.
+            // Si el OCR o el usuario pegó 11 dígitos, ahí sí puede avanzar.
+            if (txt == TxtCertBloque3 && txt.Text.Length == 11)
+            {
+                TxtCertBloque4.Focus();
+                TxtCertBloque4.SelectAll();
+                return;
+            }
+
+            if (txt == TxtCertBloque4 && txt.Text.Length == 8)
+            {
+                TxtCertBloque5.Focus();
+                TxtCertBloque5.SelectAll();
+                return;
+            }
+
+            if (txt == TxtCertBloque5 && txt.Text.Length == 8)
+            {
+                TxtCertBloque6.Focus();
+                TxtCertBloque6.SelectAll();
+                return;
+            }
+
+            if (txt == TxtCertBloque6 && txt.Text.Length == 3)
+            {
+                TxtCertBloque7.Focus();
+                TxtCertBloque7.SelectAll();
+                return;
+            }
+
+            if (txt == TxtCertBloque7 && txt.Text.Length == 3)
+            {
+                TxtApellidoNombre.Focus();
+                TxtApellidoNombre.SelectAll();
+                return;
+            }
+        }
+
+
+        private bool SincronizarNumeroCertificadoDesdeBloques(bool validarYTriangular)
+        {
+            string numero = ReconstruirNumeroCertificadoDesdeBloques();
+
+            _sincronizandoCamposCud = true;
+
+            try
+            {
+                TxtNumeCert.Text = numero;
+            }
+            finally
+            {
+                _sincronizandoCamposCud = false;
+            }
+
+            DatosNumeroCertificadoCud datos = IndexadorCudService.ParseNumeroCertificado(numero);
+
+            if (!datos.EsValido)
+            {
+                if (validarYTriangular)
+                    MarcarBloquesNumeroCertificado(ResultadoValidacion.Error(datos.Mensaje));
+
+                return false;
+            }
+
+            MarcarBloquesNumeroCertificado(
+                ResultadoValidacion.Ok("Número de certificado válido."));
+
+            if (validarYTriangular)
+            {
+                AplicarTriangulacionCertificadoForzada(datos);
+                ValidarFechasCruzadasEnPantalla();
+            }
+
+            return true;
+        }
+
+
+        private List<Control> ObtenerBloquesNumeroCertificado()
+        {
+            return new List<Control>
+    {
+        TxtCertBloque1,
+        TxtCertBloque2,
+        TxtCertBloque3,
+        TxtCertBloque4,
+        TxtCertBloque5,
+        TxtCertBloque6,
+        TxtCertBloque7
+    };
+        }
+
+        private void MarcarBloquesNumeroCertificado(ResultadoValidacion resultado)
+        {
+            foreach (Control c in ObtenerBloquesNumeroCertificado())
+            {
+                MarcarCampo(c, resultado);
+            }
+
+            MarcarCampo(TxtNumeCert, resultado);
+        }
+
+        private void LimpiarErroresBloquesNumeroCertificado()
+        {
+            foreach (Control c in ObtenerBloquesNumeroCertificado())
+            {
+                c.BackColor = _colorOk;
+                _erroresCud.SetError(c, string.Empty);
+            }
+
+            _erroresCud.SetError(TxtNumeCert, string.Empty);
+        }
+
+        private bool EsBloqueNumeroCertificado(Control control)
+        {
+            return control == TxtCertBloque1 ||
+                   control == TxtCertBloque2 ||
+                   control == TxtCertBloque3 ||
+                   control == TxtCertBloque4 ||
+                   control == TxtCertBloque5 ||
+                   control == TxtCertBloque6 ||
+                   control == TxtCertBloque7;
         }
 
 
