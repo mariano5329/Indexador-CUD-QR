@@ -56,6 +56,8 @@ namespace Indexador_GCBA_.Servicios
         public bool EsValido { get; set; }
         public string Mensaje { get; set; }
 
+        public string Sexo { get; set; }
+
         public string NumeroNormalizado { get; set; }
         public string Dni { get; set; }
         public string FechaEmision { get; set; }
@@ -361,9 +363,428 @@ namespace Indexador_GCBA_.Servicios
             if (string.IsNullOrWhiteSpace(texto))
                 return string.Empty;
 
+            // ==========================================================
+            // MODO MANUAL / INDEXADOR HUMANO
+            // ==========================================================
+            // Intenta canonizar contra opciones conocidas.
+            // Si no encuentra nada, conserva el texto libre escrito por el operador.
+            // Esto permite que el humano cargue una orientación no contemplada.
+            // ==========================================================
+
+            string canonico = CanonizarOrientacionPrestacional(texto);
+
+            if (!string.IsNullOrWhiteSpace(canonico))
+                return canonico;
+
             string t = NormalizarTextoLibre(texto);
             return t.ToUpperInvariant();
         }
+        public static string NormalizarOrientacionDesdeOcr(string textoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            // ==========================================================
+            // MODO OCR ESTRICTO
+            // ==========================================================
+            // A diferencia del Leave manual, acá NO conservamos texto libre.
+            // Si el OCR no coincide con alguna opción conocida, devolvemos vacío.
+            // Esto evita que se cargue basura institucional o texto de otras zonas.
+            // ==========================================================
+
+            string limpio = LimpiarTextoBaseOrientacion(textoOcr);
+            string canonico = CanonizarOrientacionPrestacional(limpio);
+
+            System.Diagnostics.Debug.Print("======================================");
+            System.Diagnostics.Debug.Print("[ORIENTACION OCR] Texto crudo: " + textoOcr);
+            System.Diagnostics.Debug.Print("[ORIENTACION OCR] Texto limpio: " + limpio);
+            System.Diagnostics.Debug.Print("[ORIENTACION OCR] Canonico: " + canonico);
+            System.Diagnostics.Debug.Print("======================================");
+
+            return canonico;
+        }
+
+
+        private static string LimpiarTextoBaseOrientacion(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto;
+
+            t = t.Replace("\r", " ")
+                 .Replace("\n", " ")
+                 .Replace("\t", " ");
+
+            t = Regex.Replace(
+                t,
+                @"ORIENTACI[ÓO]N\s+PRESTACIONAL\s*[:\-]?",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(
+                t,
+                @"ORIENTACION\s+PRESTACIONAL\s*[:\-]?",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            // Corta textos institucionales comunes que suelen aparecer por OCR sucio.
+            t = Regex.Replace(
+                t,
+                @"PARA\s+CONSTATAR\s+LA\s+VERACIDAD.*?(?=(ASISTENCIA|HOGAR|PRESTACIONES|TRANSPORTE|CENTRO|RESIDENCIA|SERVICIO|ESTIMULACION|FORMACION|REHABILITACION))",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(
+                t,
+                @"CONSULTE\s+.*?(?=(ASISTENCIA|HOGAR|PRESTACIONES|TRANSPORTE|CENTRO|RESIDENCIA|SERVICIO|ESTIMULACION|FORMACION|REHABILITACION))",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            // Quitar códigos CIF que no pertenecen a orientación.
+            t = Regex.Replace(t, @"\b[bsde]\s*\d{2,5}\s*\.\s*[\+\-]?\s*\d{1,4}\b", " ", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"\b[bsde]\s*\d{2,5}\b", " ", RegexOptions.IgnoreCase);
+
+            t = CortarAntesDeOrientacion(
+                t,
+                "ACTUALIZACION",
+                "ACTUALIZACIÓN",
+                "ACOMPANANTE",
+                "ACOMPAÑANTE",
+                "LUGAR",
+                "FECHA DE EMISION",
+                "FECHA DE EMISIÓN",
+                "FECHA",
+                "VENCIMIENTO",
+                "VALIDEZ",
+                "DIAGNOSTICO",
+                "DIAGNÓSTICO",
+                "FUNCIONES CORPORALES",
+                "ESTRUCTURAS CORPORALES",
+                "ACTIVIDAD",
+                "FACTORES AMBIENTALES"
+            );
+
+            t = t.Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("_", " ")
+                 .Replace("|", " ")
+                 .Replace(":", " ")
+                 .Replace(";", " ")
+                 .Replace(",", " ");
+
+            t = Regex.Replace(t, @"[^\p{L}\d\s\-/\(\)\.]", " ");
+            t = Regex.Replace(t, @"\s{2,}", " ").Trim();
+
+            return t;
+        }
+
+        private static string CanonizarOrientacionPrestacional(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = NormalizarParaOrientacion(texto);
+
+            List<CandidatoOrientacion> encontrados = new List<CandidatoOrientacion>();
+
+            int idxRehabVisual = BuscarIndiceMinimo(
+                t,
+                "CENTRO DE REHABILITACION PERS DISCAPACIDAD VISUAL",
+                "CENTRO DE REHABILITACION PERS. DISCAPACIDAD VISUAL",
+                "DISCAPACIDAD VISUAL",
+                "PERS DISCAPACIDAD VISUAL",
+                "PERS. DISCAPACIDAD VISUAL"
+            );
+
+            AgregarOrientacionSi(
+                encontrados,
+                "CENTRO DE REHABILITACION PERS. DISCAPACIDAD VISUAL",
+                idxRehabVisual >= 0 ||
+                ContieneTodosOrientacion(t, "CENTRO", "REHABILITACION", "DISCAPACIDAD", "VISUAL"),
+                idxRehabVisual
+            );
+
+            int idxRehab = BuscarIndiceMinimo(t, "REHABILIT");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "PRESTACIONES DE REHABILITACION",
+                idxRehab >= 0 &&
+                idxRehabVisual < 0 &&
+                !ContieneTodosOrientacion(t, "CENTRO", "REHABILITACION", "DISCAPACIDAD", "VISUAL"),
+                idxRehab
+            );
+
+            int idxAsistencia = BuscarIndiceMinimo(t, "ASISTENCIA", "DOMICILIARIA", "DOMICIL");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "ASISTENCIA DOMICILIARIA",
+                ContieneTodosOrientacion(t, "ASISTENCIA", "DOMICIL"),
+                idxAsistencia
+            );
+
+            int idxHogar = BuscarIndiceMinimo(t, "HOGAR");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "HOGAR",
+                Regex.IsMatch(t, @"\bHOGAR\b", RegexOptions.IgnoreCase),
+                idxHogar
+            );
+
+            int idxTransporte = BuscarIndiceMinimo(t, "TRANSPORTE", "TRANSPORT");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "TRANSPORTE",
+                idxTransporte >= 0,
+                idxTransporte
+            );
+
+            int idxCentroDia = BuscarIndiceMinimo(t, "CENTRO DE DIA", "CENTRO DIA");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "CENTRO DE DIA",
+                Regex.IsMatch(t, @"CENTRO\s+(DE\s+)?D[I1]A", RegexOptions.IgnoreCase),
+                idxCentroDia
+            );
+
+            int idxResidencia = BuscarIndiceMinimo(t, "RESIDENCIA", "RESIDEN");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "RESIDENCIA",
+                idxResidencia >= 0,
+                idxResidencia
+            );
+
+            int idxCet = BuscarIndiceMinimo(
+                t,
+                "CENTRO EDUCATIVO TERAPEUTICO",
+                "EDUCATIVO TERAPEUTICO",
+                "TERAPEUTICO"
+            );
+
+            AgregarOrientacionSi(
+                encontrados,
+                "CENTRO EDUCATIVO TERAPEUTICO",
+                ContieneTodosOrientacion(t, "CENTRO", "EDUCAT", "TERAPEUT"),
+                idxCet
+            );
+
+            int idxFormacion = BuscarIndiceMinimo(
+                t,
+                "FORMACION",
+                "APRESTAMIENTO",
+                "LABORAL",
+                "PROFESIONAL"
+            );
+
+            AgregarOrientacionSi(
+                encontrados,
+                "FORMACION/APRESTAMIENTO LABORAL Y/O PROFESIONAL",
+                idxFormacion >= 0 &&
+                (
+                    t.Contains("FORMACION") ||
+                    t.Contains("APRESTAMIENTO") ||
+                    ContieneTodosOrientacion(t, "LABORAL", "PROFESIONAL")
+                ),
+                idxFormacion
+            );
+
+            int idxInicialEgb = BuscarIndiceMinimo(t, "INICIAL", "EGB");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "PRESTACIONES EDUCATIVAS (INICIAL/EGB)",
+                ContieneTodosOrientacion(t, "EDUCAT") &&
+                (t.Contains("INICIAL") || t.Contains("EGB")),
+                idxInicialEgb
+            );
+
+            int idxApoyo = BuscarIndiceMinimo(t, "APOYO", "INTEGRACION", "ESCOLAR");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "SERVICIO DE APOYO A LA INTEGRACION ESCOLAR",
+                ContieneTodosOrientacion(t, "APOYO", "INTEGR", "ESCOLAR") ||
+                ContieneTodosOrientacion(t, "INTEGR", "ESCOLAR"),
+                idxApoyo
+            );
+
+            int idxEstimulacion = BuscarIndiceMinimo(t, "ESTIMULACION", "TEMPRANA");
+
+            AgregarOrientacionSi(
+                encontrados,
+                "ESTIMULACION TEMPRANA",
+                ContieneTodosOrientacion(t, "ESTIMUL", "TEMPR"),
+                idxEstimulacion
+            );
+
+            List<string> finales = encontrados
+                .OrderBy(x => x.Indice)
+                .Select(x => x.Valor)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            return finales.Count > 0
+                ? string.Join(" - ", finales)
+                : string.Empty;
+        }
+
+        private static void AgregarOrientacionSi(
+            List<CandidatoOrientacion> encontrados,
+            string canonico,
+            bool condicion,
+            int indice)
+        {
+            if (!condicion)
+                return;
+
+            if (indice < 0)
+                indice = 99999;
+
+            bool yaExiste = encontrados.Any(x =>
+                string.Equals(x.Valor, canonico, StringComparison.OrdinalIgnoreCase));
+
+            if (yaExiste)
+                return;
+
+            encontrados.Add(new CandidatoOrientacion
+            {
+                Valor = canonico,
+                Indice = indice
+            });
+        }
+
+        private static string NormalizarParaOrientacion(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string t = texto.ToUpperInvariant();
+
+            t = t.Normalize(System.Text.NormalizationForm.FormD);
+
+            t = new string(t.Where(c =>
+                System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) !=
+                System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+
+            t = t.Normalize(System.Text.NormalizationForm.FormC);
+
+            t = t.Replace("—", "-")
+                 .Replace("–", "-")
+                 .Replace("_", " ")
+                 .Replace("/", " / ")
+                 .Replace("\\", " ")
+                 .Replace(".", " ")
+                 .Replace(",", " ")
+                 .Replace(":", " ")
+                 .Replace(";", " ")
+                 .Replace("|", " ")
+                 .Replace("(", " ")
+                 .Replace(")", " ");
+
+            // Correcciones OCR frecuentes.
+            t = Regex.Replace(t, @"RENABUITACION", "REHABILITACION", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"RENABILITACION", "REHABILITACION", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"REHABUITACION", "REHABILITACION", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"REHABIL1TACION", "REHABILITACION", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"REHABlLITACION", "REHABILITACION", RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(t, @"DOMICIL1ARIA", "DOMICILIARIA", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"D0MICILIARIA", "DOMICILIARIA", RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(t, @"DISCAPAC[I1]DAD", "DISCAPACIDAD", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"V[I1]SUAL", "VISUAL", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"PERS\s*\.", "PERS", RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(t, @"EDUCAT1VO", "EDUCATIVO", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"TERAPEUT1CO", "TERAPEUTICO", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"INTEGRAC1ON", "INTEGRACION", RegexOptions.IgnoreCase);
+            t = Regex.Replace(t, @"ESTIMULAC1ON", "ESTIMULACION", RegexOptions.IgnoreCase);
+
+            t = Regex.Replace(t, @"\s{2,}", " ").Trim();
+
+            return t;
+        }
+
+        private static bool ContieneTodosOrientacion(string texto, params string[] partes)
+        {
+            if (string.IsNullOrWhiteSpace(texto) || partes == null || partes.Length == 0)
+                return false;
+
+            foreach (string p in partes)
+            {
+                if (string.IsNullOrWhiteSpace(p))
+                    continue;
+
+                if (texto.IndexOf(p, StringComparison.OrdinalIgnoreCase) < 0)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static int BuscarIndiceMinimo(string texto, params string[] patrones)
+        {
+            if (string.IsNullOrWhiteSpace(texto) || patrones == null || patrones.Length == 0)
+                return -1;
+
+            int menor = -1;
+
+            foreach (string patron in patrones)
+            {
+                if (string.IsNullOrWhiteSpace(patron))
+                    continue;
+
+                int idx = texto.IndexOf(patron, StringComparison.OrdinalIgnoreCase);
+
+                if (idx >= 0 && (menor < 0 || idx < menor))
+                    menor = idx;
+            }
+
+            return menor;
+        }
+
+        private static string CortarAntesDeOrientacion(string texto, params string[] cortes)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            if (cortes == null || cortes.Length == 0)
+                return texto;
+
+            int menor = -1;
+
+            foreach (string corte in cortes)
+            {
+                if (string.IsNullOrWhiteSpace(corte))
+                    continue;
+
+                int idx = texto.IndexOf(corte, StringComparison.OrdinalIgnoreCase);
+
+                if (idx >= 0 && (menor < 0 || idx < menor))
+                    menor = idx;
+            }
+
+            if (menor >= 0)
+                return texto.Substring(0, menor);
+
+            return texto;
+        }
+
+        private class CandidatoOrientacion
+        {
+            public string Valor { get; set; }
+            public int Indice { get; set; }
+        }
+
+
+
 
         public static string NormalizarSexo(string texto)
         {
@@ -1016,6 +1437,7 @@ namespace Indexador_GCBA_.Servicios
                 EsValido = false,
                 Mensaje = string.Empty,
                 NumeroNormalizado = string.Empty,
+                Sexo = string.Empty,
                 Dni = string.Empty,
                 FechaEmision = string.Empty,
                 FechaVencimiento = string.Empty
@@ -1044,6 +1466,8 @@ namespace Indexador_GCBA_.Servicios
                 return r;
             }
 
+
+            string tipoSexo = partes[1];
             string dni11 = partes[2];
             string fechaEmision8 = partes[3];
             string fechaVencimiento8 = partes[4];
@@ -1055,7 +1479,8 @@ namespace Indexador_GCBA_.Servicios
                 r.Mensaje = "El DNI incluido en el número de certificado no tiene longitud válida.";
                 return r;
             }
-
+           
+            string sexo = ObtenerSexoDesdeTipoCertificado(tipoSexo);
             string fechaEmision = ConvertirFechaYyyyMMddADdMmYyyy(fechaEmision8);
             string fechaVencimiento = ConvertirFechaYyyyMMddADdMmYyyy(fechaVencimiento8);
 
@@ -1071,14 +1496,40 @@ namespace Indexador_GCBA_.Servicios
                 return r;
             }
 
+
+          
             r.EsValido = true;
             r.Mensaje = "Número de certificado válido.";
+            r.Sexo = sexo;
             r.Dni = dni;
             r.FechaEmision = fechaEmision;
             r.FechaVencimiento = fechaVencimiento;
 
             return r;
         }
+
+        private static string ObtenerSexoDesdeTipoCertificado(string tipo)
+        {
+            if (string.IsNullOrWhiteSpace(tipo))
+                return string.Empty;
+
+            string t = Regex.Replace(tipo, @"\D", "");
+
+            if (t.Length == 1)
+                t = t.PadLeft(2, '0');
+
+            // Según regla CUD:
+            // 01 = Mujer
+            // 02 = Hombre
+            if (t == "01")
+                return "FEMENINO";
+
+            if (t == "02")
+                return "MASCULINO";
+
+            return string.Empty;
+        }
+
 
         private static string ConvertirFechaYyyyMMddADdMmYyyy(string texto)
         {

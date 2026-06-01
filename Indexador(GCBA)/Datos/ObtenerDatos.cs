@@ -253,6 +253,7 @@ SELECT TOP 1
     [EstructurasCorporales],
     [ActividadParticipacion],
     [FactoresAmbientales],
+    [OrientacionPrestacional],
     [FechaEmision],
     [FechaVencimiento],
     [Acompaniante],
@@ -294,6 +295,7 @@ ORDER BY [FechaProceso] DESC";
                             ActividadParticipacion = ValorString(dr["ActividadParticipacion"]),
                             FactoresAmbientales = ValorString(dr["FactoresAmbientales"]),
 
+                            OrientacionPrestacional = ValorString(dr["OrientacionPrestacional"]),
                             Acompaniante = ValorString(dr["Acompaniante"]),
 
                             ScoreGlobal = ValorDouble(dr["ScoreGlobal"]),
@@ -310,6 +312,8 @@ ORDER BY [FechaProceso] DESC";
                 }
             }
         }
+
+
         private static string ValorString(object valor)
         {
             if (valor == null || valor == DBNull.Value)

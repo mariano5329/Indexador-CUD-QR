@@ -432,20 +432,20 @@ namespace Indexador_GCBA_
             TxtCertBloque7.TabIndex = 6;
 
             TxtApellidoNombre.TabIndex = 7;
-            CmbSexo.TabIndex = 8;
-            TxtNumDNI.TabIndex = 9;
-            TxtNumCuil.TabIndex = 10;
-            TxtFechaNac.TabIndex = 11;
-            TxtDiagnostico.TabIndex = 12;
-            TxtFuncionesCorporales.TabIndex = 13;
-            TxtEstructurasCorporales.TabIndex = 14;
-            TxtActividad_Particip.TabIndex = 15;
-            TxtFactoresAmbientales.TabIndex = 16;
-            TxtOrientacion.TabIndex = 17;
-            TxtFechaVencimiento.TabIndex = 18;
-            CmbAcomapante.TabIndex = 19;
-            TxtFechaEmision.TabIndex = 20;
-            btnGrabar.TabIndex = 21;
+            //CmbSexo.TabIndex = 8;
+            //TxtNumDNI.TabIndex = 8;
+            TxtNumCuil.TabIndex = 8;
+            TxtFechaNac.TabIndex = 9;
+            TxtDiagnostico.TabIndex = 10;
+            TxtFuncionesCorporales.TabIndex = 11;
+            TxtEstructurasCorporales.TabIndex = 12;
+            TxtActividad_Particip.TabIndex = 13;
+            TxtFactoresAmbientales.TabIndex = 14;
+            TxtOrientacion.TabIndex = 15;
+            TxtFechaVencimiento.TabIndex = 16;
+            CmbAcomapante.TabIndex = 17;
+            TxtFechaEmision.TabIndex = 18;
+            btnGrabar.TabIndex = 19;
 
             foreach (Control c in ObtenerControlesCargaCud())
             {
@@ -468,8 +468,8 @@ namespace Indexador_GCBA_
         TxtCertBloque7,
 
         TxtApellidoNombre,
-        CmbSexo,
-        TxtNumDNI,
+      
+   
         TxtNumCuil,
         TxtFechaNac,
         TxtDiagnostico,
@@ -659,7 +659,14 @@ namespace Indexador_GCBA_
                     TxtNumeCert.Text = datosNumero.NumeroNormalizado;
                     CargarBloquesNumeroCertificadoDesdeTexto(datosNumero.NumeroNormalizado);
 
+                    if (!string.IsNullOrWhiteSpace(datosNumero.Sexo) && CmbSexo.Items.Contains(datosNumero.Sexo))
+                    {
+                        CmbSexo.Text = datosNumero.Sexo;
+                        Debug.WriteLine("[PREINDEX][Sexo] Cargado desde número certificado: " + datosNumero.Sexo);
+                    }
+
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] Cargado: " + datosNumero.NumeroNormalizado);
+                    Debug.WriteLine("[PREINDEX][NumeroCertificado] Sexo interno: " + datosNumero.Sexo);
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] DNI interno: " + datosNumero.Dni);
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] Fecha emisión interna: " + datosNumero.FechaEmision);
                     Debug.WriteLine("[PREINDEX][NumeroCertificado] Fecha vencimiento interna: " + datosNumero.FechaVencimiento);
@@ -950,10 +957,21 @@ namespace Indexador_GCBA_
                 }
 
                 // ============================================================
-                // CAMPOS OMITIDOS DESDE PREPROCESAMIENTO
+                // ORIENTACIÓN PRESTACIONAL
                 // ============================================================
-                Debug.WriteLine("[PREINDEX][Diagnostico] Omitido por decisión funcional.");
-                Debug.WriteLine("[PREINDEX][OrientacionPrestacional] Omitida por decisión funcional.");
+                string orientacion = IndexadorCudService.NormalizarOrientacionDesdeOcr(
+                    datos.OrientacionPrestacional
+                );
+
+                if (!string.IsNullOrWhiteSpace(orientacion))
+                {
+                    TxtOrientacion.Text = orientacion;
+                    Debug.WriteLine("[PREINDEX][OrientacionPrestacional] Cargada: " + orientacion);
+                }
+                else
+                {
+                    Debug.WriteLine("[PREINDEX][OrientacionPrestacional] No cargada. Valor='" + datos.OrientacionPrestacional + "'");
+                }
 
                 Debug.WriteLine("[PREINDEX] Precarga finalizada.");
             }
@@ -1579,6 +1597,12 @@ namespace Indexador_GCBA_
             TxtNumDNI.Text = datos.Dni;
             TxtFechaEmision.Text = datos.FechaEmision;
             TxtFechaVencimiento.Text = datos.FechaVencimiento;
+           
+            if (!string.IsNullOrWhiteSpace(datos.Sexo) && CmbSexo.Items.Contains(datos.Sexo))
+            {
+                CmbSexo.Text = datos.Sexo;
+            }
+
 
             _ultimoDniAuto = datos.Dni;
             _ultimaEmisionAuto = datos.FechaEmision;
@@ -1588,7 +1612,8 @@ namespace Indexador_GCBA_
             ActualizarCuilDesdeDni(datos.Dni);
 
             _sincronizandoCamposCud = false;
-
+         
+            MarcarCampoAuto(CmbSexo, "Sexo sincronizado desde número de certificado.");
             MarcarCampoAuto(TxtNumDNI, "DNI sincronizado desde número de certificado.");
             MarcarCampoAuto(TxtFechaEmision, "Fecha de emisión sincronizada desde número de certificado.");
             MarcarCampoAuto(TxtFechaVencimiento, "Fecha de vencimiento sincronizada desde número de certificado.");
@@ -1780,8 +1805,11 @@ namespace Indexador_GCBA_
         {
             TxtOrientacion.Text = IndexadorCudService.NormalizarOrientacion(TxtOrientacion.Text);
 
-            MarcarCampo(TxtOrientacion,
-                IndexadorCudService.ValidarObligatorio(TxtOrientacion.Text, "Orientación prestacional"));
+            MarcarCampo(
+                TxtOrientacion,
+                IndexadorCudService.ValidarObligatorio(
+                    TxtOrientacion.Text,
+                    "Orientación prestacional"));
         }
 
         private void CodigoCif_LeaveCud(object sender, EventArgs e)
@@ -2100,6 +2128,42 @@ namespace Indexador_GCBA_
                 return false;
 
             bool valido = true;
+
+
+            // ==========================================================
+            // SEXO
+            // ==========================================================
+
+            string sexoPantalla = IndexadorCudService.NormalizarSexo(CmbSexo.Text);
+            string sexoCertificado = IndexadorCudService.NormalizarSexo(datosNumero.Sexo);
+
+            if (string.IsNullOrWhiteSpace(sexoPantalla))
+            {
+                if (!string.IsNullOrWhiteSpace(sexoCertificado) && CmbSexo.Items.Contains(sexoCertificado))
+                {
+                    CmbSexo.Text = sexoCertificado;
+
+                    MarcarCampoAuto(
+                        CmbSexo,
+                        "Sexo autocompletado desde número de certificado.");
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(sexoCertificado) &&
+                     !sexoPantalla.Equals(sexoCertificado, StringComparison.OrdinalIgnoreCase))
+            {
+                valido = false;
+
+                ResultadoValidacion r = ResultadoValidacion.Error(
+                    "El sexo cargado no coincide con el tipo incluido en el número de certificado.");
+
+                MarcarCampo(CmbSexo, r);
+                MarcarCampo(TxtCertBloque2, r);
+
+                if (primerError == null)
+                    primerError = CmbSexo;
+            }
+
+
 
             // ==========================================================
             // DNI
@@ -4886,75 +4950,6 @@ namespace Indexador_GCBA_
             KeyPressNumeroCertificadoCud(sender, e);
         }
 
-        private void TxtNumeCert_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtTomo_Acta_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtNumero_Acta_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtAnio_Acta_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtDia_inscripcion_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtMes_Inscripcion_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtAño_Inscripcion_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtNombre_Nacido_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtCNI_Numero_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtSexo_Nacido_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtDia_Nacimiento_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtMes_Nacimiento_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtAño_Nacimiento_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
-
-        private void txtNombre_Padre_KeyDown(object sender, KeyEventArgs e)
-        {
-            ControlCarga_KeyDownCud(sender, e);
-        }
 
         private void txtNombre_Madre_KeyDown(object sender, KeyEventArgs e)
         {

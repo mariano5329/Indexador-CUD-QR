@@ -29,6 +29,10 @@ namespace Indexador_GCBA_.Entidades
 
         public string Acompaniante { get; set; }
 
+
+
+         public string OrientacionPrestacional { get; set; }
+
         public double ScoreGlobal { get; set; }
         public string EstadoOCR { get; set; }
         public bool RequiereQA { get; set; }
