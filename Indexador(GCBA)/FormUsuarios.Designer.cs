@@ -1,4 +1,4 @@
-﻿namespace Indexador_GCBA_
+﻿namespace IndexadorCopidis
 {
     partial class FormUsuarios
     {

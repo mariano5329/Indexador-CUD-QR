@@ -1,11 +1,11 @@
-﻿using Indexador_GCBA_.Entidades;
+﻿using IndexadorCopidis.Entidades;
 using System;
 using System.Data;
 using System.Data.OleDb;
 using System.Diagnostics;
 using System.IO;
 
-namespace Indexador_GCBA_.Datos
+namespace IndexadorCopidis.Datos
 {
     public class ObtenerDatos
     {

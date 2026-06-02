@@ -7,7 +7,7 @@ using System.IO;
 using System.Data;
 using System.Windows.Forms;
 
-namespace Indexador_GCBA_.Datos
+namespace IndexadorCopidis.Datos
 {
     class CargarBD
     {

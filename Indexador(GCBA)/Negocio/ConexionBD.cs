@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Indexador_GCBA_.Negocio
+namespace IndexadorCopidis.Negocio
 {
     public class ConexionBD
     {

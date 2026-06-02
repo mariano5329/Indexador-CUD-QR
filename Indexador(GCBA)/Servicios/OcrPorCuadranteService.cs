@@ -7,7 +7,7 @@ using System.IO;
 using System.Windows.Forms;
 using Tesseract;
 
-namespace Indexador_GCBA_.Servicios
+namespace IndexadorCopidis.Servicios
 {
     public class ResultadoOcrCuadrante
     {

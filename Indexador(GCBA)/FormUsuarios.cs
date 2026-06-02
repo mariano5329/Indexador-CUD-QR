@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
 
-namespace Indexador_GCBA_
+namespace IndexadorCopidis
 {
     public partial class FormUsuarios : Form
     {

@@ -1,4 +1,4 @@
-﻿namespace Indexador_GCBA_
+﻿namespace IndexadorCopidis
 {
     partial class FormLogin
     {
@@ -73,7 +73,7 @@
             // 
             // pictureBox1
             // 
-            this.pictureBox1.Image = global::Indexador_GCBA_.Properties.Resources.Escudo_GCBA;
+            this.pictureBox1.Image = global::IndexadorCopidis.Properties.Resources.Escudo_GCBA;
             this.pictureBox1.Location = new System.Drawing.Point(16, 25);
             this.pictureBox1.Margin = new System.Windows.Forms.Padding(4);
             this.pictureBox1.Name = "pictureBox1";

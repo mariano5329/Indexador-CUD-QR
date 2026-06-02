@@ -1,6 +1,6 @@
-﻿using Indexador_GCBA_.Datos;
-using Indexador_GCBA_.Entidades;
-using Indexador_GCBA_.Servicios;
+﻿using IndexadorCopidis.Datos;
+using IndexadorCopidis.Entidades;
+using IndexadorCopidis.Servicios;
 using PdfiumViewer;
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace Indexador_GCBA_
+namespace IndexadorCopidis
 {
     public partial class FormCopidis : Form
     {
@@ -3245,6 +3245,132 @@ namespace Indexador_GCBA_
             }
         }
 
+        private bool TextoDiagnosticoOcrPareceBasura(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return true;
+
+            string t = texto.Trim().ToUpperInvariant();
+
+            t = t.Replace("Á", "A")
+                 .Replace("É", "E")
+                 .Replace("Í", "I")
+                 .Replace("Ó", "O")
+                 .Replace("Ú", "U")
+                 .Replace("Ü", "U");
+
+            int total = t.Length;
+
+            if (total == 0)
+                return true;
+
+            int letras = t.Count(char.IsLetter);
+            int digitos = t.Count(char.IsDigit);
+            int espacios = t.Count(char.IsWhiteSpace);
+            int simbolos = total - letras - digitos - espacios;
+
+            // Demasiados símbolos mezclados.
+            double ratioSimbolos = (double)simbolos / total;
+
+            if (ratioSimbolos > 0.25)
+                return true;
+
+            // Muy pocas letras útiles.
+            if (letras < 4)
+                return true;
+
+            // Muchas secuencias de la misma letra: ZZZZ, DDDD, LLLL.
+            if (Regex.IsMatch(t, @"([A-Z])\1{3,}"))
+                return true;
+
+            // Secuencias largas de consonantes sin vocales.
+            // Ejemplo: ZDDOHELHLEHT no cae entero, pero STSKS5FHDDDLSMDDL sí tiende a caer.
+            if (Regex.IsMatch(t, @"[BCDFGHJKLMNPQRSTVWXYZÑ]{6,}"))
+                return true;
+
+            string textoSinSimbolos = Regex.Replace(t, @"[^\p{L}\d\s]", " ");
+            textoSinSimbolos = Regex.Replace(textoSinSimbolos, @"\s+", " ").Trim();
+
+            if (string.IsNullOrWhiteSpace(textoSinSimbolos))
+                return true;
+
+            string[] tokens = textoSinSimbolos
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length == 0)
+                return true;
+
+            int tokensRaros = 0;
+            int tokensUtiles = 0;
+
+            foreach (string tokenOriginal in tokens)
+            {
+                string token = tokenOriginal.Trim();
+
+                if (string.IsNullOrWhiteSpace(token))
+                    continue;
+
+                string soloLetras = Regex.Replace(token, @"[^A-ZÑ]", "");
+
+                if (soloLetras.Length >= 3)
+                    tokensUtiles++;
+
+                bool tieneVocal = Regex.IsMatch(soloLetras, @"[AEIOU]");
+
+                // Token largo sin vocal: STSKSFHDDDLSMDDL
+                if (soloLetras.Length >= 5 && !tieneVocal)
+                {
+                    tokensRaros++;
+                    continue;
+                }
+
+                // Token muy largo con aspecto OCR, pocas vocales.
+                if (soloLetras.Length >= 10)
+                {
+                    int vocales = soloLetras.Count(c => "AEIOU".Contains(c));
+                    double ratioVocales = (double)vocales / soloLetras.Length;
+
+                    if (ratioVocales < 0.25)
+                    {
+                        tokensRaros++;
+                        continue;
+                    }
+                }
+
+                // Token con muchas consonantes seguidas.
+                if (Regex.IsMatch(soloLetras, @"[BCDFGHJKLMNPQRSTVWXYZÑ]{5,}"))
+                {
+                    tokensRaros++;
+                    continue;
+                }
+
+                // Token con repetición anormal.
+                if (Regex.IsMatch(soloLetras, @"([A-ZÑ])\1{2,}"))
+                {
+                    tokensRaros++;
+                    continue;
+                }
+            }
+
+            if (tokensUtiles == 0)
+                return true;
+
+            double ratioTokensRaros = tokens.Length == 0 ? 1 : (double)tokensRaros / tokens.Length;
+
+            if (tokens.Length >= 2 && ratioTokensRaros >= 0.50)
+                return true;
+
+            // Caso típico de basura OCR con muchas mayúsculas aisladas:
+            // O T EAE E CC S SNÑA A D Ñ IZ O
+            int tokensDeUnaLetra = tokens.Count(x => Regex.Replace(x, @"[^A-ZÑ]", "").Length == 1);
+
+            if (tokens.Length >= 6 && ((double)tokensDeUnaLetra / tokens.Length) > 0.45)
+                return true;
+
+            return false;
+        }
+
+
         private void PictureBox1_SizeChanged(object sender, EventArgs e)
         {
             if (lastWidth > 0 && lastHeight > 0)
@@ -3316,7 +3442,7 @@ namespace Indexador_GCBA_
 
         private void ExtractPdfium()
         {
-            string resourceName = "Indexador_GCBA_.pdfium.dll";
+            string resourceName = "IndexadorCopidis.pdfium.dll";
             string outputPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pdfium.dll");
 
             Console.WriteLine("Extrayendo pdfium.dll a: " + outputPath);
@@ -3548,31 +3674,93 @@ namespace Indexador_GCBA_
         //   BeginInvoke(new Action(CargarPdfPruebaCopidis));
         }
 
-        private void CargarPdfPruebaCopidis()
+
+
+        private bool TextoLibreOcrEsBasura(string texto)
         {
-            string rutaPdfPrueba = @"C:\Users\Administrador\Desktop\Prueba Copidis\2.pdf";
+            if (string.IsNullOrWhiteSpace(texto))
+                return true;
 
-            if (!File.Exists(rutaPdfPrueba))
+            string t = texto.Trim();
+
+            int total = t.Length;
+
+            if (total == 0)
+                return true;
+
+            int letras = t.Count(char.IsLetter);
+            int digitos = t.Count(char.IsDigit);
+            int espacios = t.Count(char.IsWhiteSpace);
+
+            int utiles = letras + digitos + espacios;
+            int simbolos = total - utiles;
+
+            // ==========================================================
+            // 1) Muy pocas letras reales
+            // ==========================================================
+            if (letras < 3)
+                return true;
+
+            // ==========================================================
+            // 2) Demasiados símbolos respecto del total
+            // Ejemplo: "]-];-]; ;]] ÚD E$G Z-;-;-]"
+            // ==========================================================
+            double ratioSimbolos = total == 0 ? 1 : (double)simbolos / total;
+
+            if (ratioSimbolos > 0.35)
+                return true;
+
+            // ==========================================================
+            // 3) Demasiados separadores repetidos
+            // ==========================================================
+            if (Regex.IsMatch(t, @"[\]\[\-;:,\._]{4,}"))
+                return true;
+
+            if (Regex.IsMatch(t, @"(?:[\]\[\-;:,\._]\s*){6,}"))
+                return true;
+
+            // ==========================================================
+            // 4) Texto casi sin palabras útiles
+            // ==========================================================
+            string soloPalabras = Regex.Replace(t, @"[^\p{L}\d\s]", " ");
+            soloPalabras = Regex.Replace(soloPalabras, @"\s+", " ").Trim();
+
+            string[] palabras = soloPalabras
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(p => p.Length >= 3)
+                .ToArray();
+
+            if (palabras.Length == 0)
+                return true;
+
+            // ==========================================================
+            // 5) Muchas letras sueltas o fragmentos raros
+            // ==========================================================
+            string[] tokens = t
+                .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (tokens.Length > 0)
             {
-                MessageBox.Show(
-                    "No se encontró el PDF de prueba:" + Environment.NewLine + rutaPdfPrueba,
-                    "PDF de prueba",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
+                int tokensRaros = 0;
 
-                return;
+                foreach (string token in tokens)
+                {
+                    string limpio = Regex.Replace(token, @"[^\p{L}\d]", "");
+
+                    if (limpio.Length <= 1)
+                        tokensRaros++;
+                }
+
+                double ratioTokensRaros = (double)tokensRaros / tokens.Length;
+
+                if (tokens.Length >= 5 && ratioTokensRaros > 0.60)
+                    return true;
             }
 
-            RutaNombreImagen = rutaPdfPrueba;
-            txtNombreImagen.Text = Path.GetFileNameWithoutExtension(rutaPdfPrueba);
-            txtRutaLote.Text = Path.GetDirectoryName(rutaPdfPrueba);
-
-            CargarPDFEnPictureBox(rutaPdfPrueba);
-
-            HabilitarBotones();
-
-            TxtNumeCert.Focus();
+            return false;
         }
+
+
 
         private void ConfigurarSeleccionCuadranteOcr()
         {
@@ -4482,29 +4670,110 @@ namespace Indexador_GCBA_
 
         private ResultadoAplicacionOcr PrepararOcrDiagnostico(string textoOcr, float confianza)
         {
-            string t = LimpiarDiagnosticoDesdeOcr(textoOcr);
+            string crudo = textoOcr ?? string.Empty;
 
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[OCR DIAGNOSTICO] INICIO");
+            Debug.WriteLine("[OCR DIAGNOSTICO] Confianza OCR: " + confianza);
             Debug.WriteLine("[OCR DIAGNOSTICO] Texto OCR crudo:");
-            Debug.WriteLine(textoOcr);
+            Debug.WriteLine(crudo);
+
+            // ==========================================================
+            // IMPORTANTE:
+            // No rechazamos el texto crudo completo por basura.
+            // Puede venir una línea basura arriba y una línea útil abajo.
+            // Primero limpiamos por líneas y después validamos el resultado.
+            // ==========================================================
+
+            string t = LimpiarDiagnosticoDesdeOcr(crudo);
+
             Debug.WriteLine("[OCR DIAGNOSTICO] Texto limpio:");
             Debug.WriteLine(t);
 
             if (string.IsNullOrWhiteSpace(t))
-                return ResultadoAplicacionOcr.Rechazar("El OCR no detectó texto útil para Diagnóstico.");
+            {
+                Debug.WriteLine("[OCR DIAGNOSTICO] Rechazado: no quedó texto útil luego de limpiar.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no detectó texto útil para Diagnóstico.",
+                    string.Empty);
+            }
+
+            if (TextoDiagnosticoLimpioSigueSiendoBasura(t))
+            {
+                Debug.WriteLine("[OCR DIAGNOSTICO] Rechazado: el texto limpio sigue pareciendo basura OCR.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no produjo texto médico útil para Diagnóstico. Revise el recorte.",
+                    t);
+            }
 
             if (t.Length < 3)
-                return ResultadoAplicacionOcr.Rechazar("El texto OCR para Diagnóstico es demasiado corto.", t);
+            {
+                Debug.WriteLine("[OCR DIAGNOSTICO] Rechazado: texto demasiado corto.");
+                Debug.WriteLine("==================================================");
 
-            // Mismo criterio bajo que venías usando para texto libre.
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El texto OCR para Diagnóstico es demasiado corto.",
+                    t);
+            }
+
             if (confianza < 0.25f)
             {
+                Debug.WriteLine("[OCR DIAGNOSTICO] Rechazado: confianza OCR baja.");
+                Debug.WriteLine("==================================================");
+
                 return ResultadoAplicacionOcr.Rechazar(
                     "Confianza OCR muy baja para Diagnóstico. Revise el recorte o amplíe la selección.",
                     t);
             }
 
+            Debug.WriteLine("[OCR DIAGNOSTICO] OK:");
+            Debug.WriteLine(t);
+            Debug.WriteLine("==================================================");
+
             return ResultadoAplicacionOcr.Ok(t, "Diagnóstico OCR aceptado.");
         }
+
+        private bool TextoDiagnosticoLimpioSigueSiendoBasura(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return true;
+
+            string t = texto.Trim().ToUpperInvariant();
+
+            t = t.Replace("Á", "A")
+                 .Replace("É", "E")
+                 .Replace("Í", "I")
+                 .Replace("Ó", "O")
+                 .Replace("Ú", "U")
+                 .Replace("Ü", "U");
+
+            string limpio = Regex.Replace(t, @"[^\p{L}\d\s]", " ");
+            limpio = Regex.Replace(limpio, @"\s+", " ").Trim();
+
+            if (string.IsNullOrWhiteSpace(limpio))
+                return true;
+
+            string[] tokens = limpio
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            int palabrasBuenas = 0;
+
+            foreach (string tokenOriginal in tokens)
+            {
+                string token = Regex.Replace(tokenOriginal, @"[^A-ZÑ]", "");
+
+                if (token.Length >= 3 && Regex.IsMatch(token, @"[AEIOU]"))
+                    palabrasBuenas++;
+            }
+
+            return palabrasBuenas == 0;
+        }
+
+
         private string LimpiarDiagnosticoDesdeOcr(string textoOcr)
         {
             if (string.IsNullOrWhiteSpace(textoOcr))
@@ -4524,37 +4793,272 @@ namespace Indexador_GCBA_
                 if (string.IsNullOrWhiteSpace(linea))
                     continue;
 
-                linea = linea.Replace("—", "-")
-                             .Replace("–", "-")
+                Debug.WriteLine("[OCR DIAGNOSTICO] Línea cruda:");
+                Debug.WriteLine(linea);
+
+                // ==========================================================
+                // 1) NORMALIZACIÓN DE BASURA VISUAL OCR
+                // ==========================================================
+
+                linea = linea.Replace("“", "\"")
+                             .Replace("”", "\"")
+                             .Replace("„", "\"")
+                             .Replace("´", "'")
+                             .Replace("`", "'")
+                             .Replace("—", " ")
+                             .Replace("–", " ")
                              .Replace("_", " ")
                              .Replace("¬", " ")
-                             .Replace("°", " ");
+                             .Replace("°", " ")
+                             .Replace("|", " ")
+                             .Replace(">", " ")
+                             .Replace("<", " ")
+                             .Replace("[", " ")
+                             .Replace("]", " ")
+                             .Replace("{", " ")
+                             .Replace("}", " ")
+                             .Replace("»", " ")
+                             .Replace("«", " ")
+                             .Replace("+", " ")
+                             .Replace("$", " ")
+                             .Replace("%", " ");
 
-                linea = Regex.Replace(linea, @"[-]{2,}", " ");
+                // Quita comillas sueltas y restos tipo 4” > 7 ”,-, |
+                linea = Regex.Replace(linea, @"[""']+", " ");
+                linea = Regex.Replace(linea, @"\b\d{1,2}\s*[""']\s*", " ");
+
+                // ==========================================================
+                // 2) QUITAR RÓTULO DIAGNÓSTICO EN VARIANTES OCR
+                // ==========================================================
+
+                linea = Regex.Replace(
+                    linea,
+                    @"\bD\s*I\s*A?\s*G\s*N\s*[OÓ0]\s*S\s*T\s*I\s*C\s*[O0]\b\s*[:\-]?",
+                    " ",
+                    RegexOptions.IgnoreCase);
+
+                linea = Regex.Replace(
+                    linea,
+                    @"\bDI\s+GN[OÓ0]STIC[O0]\b\s*[:\-]?",
+                    " ",
+                    RegexOptions.IgnoreCase);
+
+                linea = Regex.Replace(
+                    linea,
+                    @"\bDIAGN[OÓ0]STIC[O0]\b\s*[:\-]?",
+                    " ",
+                    RegexOptions.IgnoreCase);
+
+                // ==========================================================
+                // 3) LIMPIEZA DE SEPARADORES
+                // ==========================================================
+
+                linea = Regex.Replace(linea, @"(?:[\.;,:/\-]\s*){2,}", " ");
                 linea = Regex.Replace(linea, @"\s+", " ").Trim();
+
+                linea = Regex.Replace(linea, @"^[\-\.:;,/\\\|> <""' ]+", "").Trim();
+                linea = Regex.Replace(linea, @"[\-\.:;,/\\\|> <""' ]+$", "").Trim();
+
+                if (string.IsNullOrWhiteSpace(linea))
+                    continue;
+
+                Debug.WriteLine("[OCR DIAGNOSTICO] Línea prefiltrada:");
+                Debug.WriteLine(linea);
+
+                // ==========================================================
+                // 4) DESCARTAR LÍNEAS BASURA, NO TODO EL TEXTO
+                // ==========================================================
+
+                if (EsLineaRuidoDiagnosticoOcr(linea))
+                {
+                    Debug.WriteLine("[OCR DIAGNOSTICO] Línea descartada por ruido:");
+                    Debug.WriteLine(linea);
+                    continue;
+                }
+
+                // ==========================================================
+                // 5) LIMPIEZA EXTRA DE FRAGMENTOS RAROS DENTRO DE LA LÍNEA
+                // ==========================================================
+
+                linea = LimpiarFragmentosBasuraDiagnostico(linea);
 
                 if (string.IsNullOrWhiteSpace(linea))
                     continue;
 
                 if (EsLineaRuidoDiagnosticoOcr(linea))
                 {
-                    Debug.WriteLine("[OCR DIAGNOSTICO] Línea descartada por ruido: " + linea);
+                    Debug.WriteLine("[OCR DIAGNOSTICO] Línea descartada luego de limpiar fragmentos:");
+                    Debug.WriteLine(linea);
                     continue;
                 }
+
+                Debug.WriteLine("[OCR DIAGNOSTICO] Línea aceptada:");
+                Debug.WriteLine(linea);
 
                 lineasUtiles.Add(linea);
             }
 
             string resultado = string.Join(" ", lineasUtiles);
 
-            resultado = resultado.Replace("'", "");
             resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
 
-            // Limpieza final de separadores colgados al principio o al final.
-            resultado = Regex.Replace(resultado, @"^[\-\.:;, ]+", "").Trim();
-            resultado = Regex.Replace(resultado, @"[\-\.:;, ]+$", "").Trim();
+            // Limpieza final de rótulos por si quedaron después de unir líneas.
+            resultado = Regex.Replace(
+                resultado,
+                @"\bD\s*I\s*A?\s*G\s*N\s*[OÓ0]\s*S\s*T\s*I\s*C\s*[O0]\b\s*[:\-]?",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            resultado = Regex.Replace(
+                resultado,
+                @"\bDIAGN[OÓ0]STIC[O0]\b\s*[:\-]?",
+                " ",
+                RegexOptions.IgnoreCase);
+
+            resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
+
+            resultado = Regex.Replace(resultado, @"^[\-\.:;,/\\\|> <""' ]+", "").Trim();
+            resultado = Regex.Replace(resultado, @"[\-\.:;,/\\\|> <""' ]+$", "").Trim();
 
             return resultado;
+        }
+
+        private string LimpiarFragmentosBasuraDiagnostico(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+                return string.Empty;
+
+            string[] tokens = texto
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            List<string> utiles = new List<string>();
+
+            foreach (string tokenOriginal in tokens)
+            {
+                string token = tokenOriginal.Trim();
+
+                if (string.IsNullOrWhiteSpace(token))
+                    continue;
+
+                string tokenEval = token.ToUpperInvariant();
+
+                tokenEval = tokenEval.Replace("Á", "A")
+                                     .Replace("É", "E")
+                                     .Replace("Í", "I")
+                                     .Replace("Ó", "O")
+                                     .Replace("Ú", "U")
+                                     .Replace("Ü", "U");
+
+                string soloLetras = Regex.Replace(tokenEval, @"[^A-ZÑ]", "");
+                string soloLetrasNumeros = Regex.Replace(tokenEval, @"[^A-ZÑ0-9]", "");
+
+                // Conserva conectores médicos/castellanos cortos.
+                if (EsTokenCortoPermitidoDiagnostico(tokenEval))
+                {
+                    utiles.Add(token);
+                    continue;
+                }
+
+                // Descarta tokens vacíos luego de limpiar.
+                if (string.IsNullOrWhiteSpace(soloLetrasNumeros))
+                    continue;
+
+                // Descarta tokens larguísimos pegados de OCR:
+                // MDDMDOCCqAADO, tttZZDeqepegeohidEooooooilio
+                if (soloLetras.Length >= 10)
+                {
+                    int vocales = soloLetras.Count(c => "AEIOU".Contains(c));
+                    double ratioVocales = soloLetras.Length == 0 ? 0 : (double)vocales / soloLetras.Length;
+
+                    bool repeticion = Regex.IsMatch(soloLetras, @"([A-ZÑ])\1{3,}");
+                    bool consonantesLargas = Regex.IsMatch(soloLetras, @"[BCDFGHJKLMNPQRSTVWXYZÑ]{6,}");
+
+                    if (ratioVocales < 0.30 || repeticion || consonantesLargas)
+                        continue;
+                }
+
+                // Descarta tokens de símbolos/números tipo ;—1
+                int letras = token.Count(char.IsLetter);
+                int digitos = token.Count(char.IsDigit);
+                int simbolos = token.Count(c => !char.IsLetterOrDigit(c) && !char.IsWhiteSpace(c));
+
+                if (letras == 0 && (digitos > 0 || simbolos > 0))
+                    continue;
+
+                if (letras <= 1 && simbolos >= 1)
+                    continue;
+
+                // Descarta cadenas cortas raras sin vocales, salvo siglas conocidas.
+                if (soloLetras.Length >= 3 &&
+                    !Regex.IsMatch(soloLetras, @"[AEIOU]") &&
+                    !EsSiglaMedicaPermitidaDiagnostico(soloLetras))
+                {
+                    continue;
+                }
+
+                utiles.Add(token);
+            }
+
+            string resultado = string.Join(" ", utiles);
+            resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
+
+            return resultado;
+        }
+
+        private bool EsTokenCortoPermitidoDiagnostico(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            string t = token.Trim().ToUpperInvariant();
+
+            t = t.Replace(".", "")
+                 .Replace(",", "")
+                 .Replace(";", "")
+                 .Replace(":", "");
+
+            string[] permitidos =
+            {
+        "DE",
+        "DEL",
+        "LA",
+        "LAS",
+        "LOS",
+        "EL",
+        "Y",
+        "E",
+        "EN",
+        "CON",
+        "POR",
+        "SIN",
+        "A",
+        "AL"
+    };
+
+            return permitidos.Contains(t);
+        }
+
+        private bool EsSiglaMedicaPermitidaDiagnostico(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return false;
+
+            string t = token.Trim().ToUpperInvariant();
+
+            string[] siglas =
+            {
+        "TEA",
+        "TGD",
+        "HIV",
+        "ACV",
+        "EPOC",
+        "ELA",
+        "DBT",
+        "HTA",
+        "IAM"
+    };
+
+            return siglas.Contains(t);
         }
 
         private bool EsLineaRuidoDiagnosticoOcr(string linea)
@@ -4565,17 +5069,57 @@ namespace Indexador_GCBA_
             string l = linea.Trim();
 
             // Líneas hechas solo de separadores.
-            if (Regex.IsMatch(l, @"^[\-\._=~:,;|\\/ ]+$"))
+            if (Regex.IsMatch(l, @"^[\-\._=~:,;|\\/ > <""' ]+$"))
                 return true;
 
-            string soloLetrasNumeros = Regex.Replace(l, @"[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]", "");
+            int total = l.Length;
+            int letras = l.Count(char.IsLetter);
+            int digitos = l.Count(char.IsDigit);
+            int espacios = l.Count(char.IsWhiteSpace);
+            int simbolos = total - letras - digitos - espacios;
+
+            // Ejemplo: 4” > 7 ”,-, |
+            if (letras == 0 && digitos > 0 && simbolos > 0)
+                return true;
+
+            if (letras <= 1 && simbolos >= 2)
+                return true;
+
+            string soloLetrasNumeros = Regex.Replace(l, @"[^\p{L}\d]", "");
 
             if (string.IsNullOrWhiteSpace(soloLetrasNumeros))
                 return true;
 
-            // Caso del log: "rs".
-            // También descarta residuos tipo "fs", "rn", "ll", etc.
-            // No descarta siglas con vocales, por ejemplo TEA.
+            // Si tiene una cantidad razonable de palabras con vocales, no es basura.
+            string limpio = Regex.Replace(l, @"[^\p{L}\d\s]", " ");
+            limpio = Regex.Replace(limpio, @"\s+", " ").Trim();
+
+            string[] tokens = limpio
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            int palabrasBuenas = 0;
+
+            foreach (string tokenOriginal in tokens)
+            {
+                string token = tokenOriginal.ToUpperInvariant();
+
+                token = token.Replace("Á", "A")
+                             .Replace("É", "E")
+                             .Replace("Í", "I")
+                             .Replace("Ó", "O")
+                             .Replace("Ú", "U")
+                             .Replace("Ü", "U");
+
+                string soloLetras = Regex.Replace(token, @"[^A-ZÑ]", "");
+
+                if (soloLetras.Length >= 3 && Regex.IsMatch(soloLetras, @"[AEIOU]"))
+                    palabrasBuenas++;
+            }
+
+            if (palabrasBuenas >= 2)
+                return false;
+
+            // Caso del log: "rs", "oo", "uciw oo", etc.
             if (soloLetrasNumeros.Length <= 3 &&
                 !Regex.IsMatch(soloLetrasNumeros, @"[aeiouáéíóúAEIOUÁÉÍÓÚ]") &&
                 !Regex.IsMatch(soloLetrasNumeros, @"\d"))
@@ -4583,8 +5127,15 @@ namespace Indexador_GCBA_
                 return true;
             }
 
-            // Líneas muy cortas con solo una letra o número suelto.
-            if (soloLetrasNumeros.Length == 1)
+            // Muchas repeticiones: ZZZZ, DDDD.
+            string normal = l.ToUpperInvariant()
+                             .Replace("Á", "A")
+                             .Replace("É", "E")
+                             .Replace("Í", "I")
+                             .Replace("Ó", "O")
+                             .Replace("Ú", "U");
+
+            if (Regex.IsMatch(normal, @"([A-ZÑ])\1{4,}"))
                 return true;
 
             return false;
@@ -4593,37 +5144,117 @@ namespace Indexador_GCBA_
 
 
         private ResultadoAplicacionOcr PrepararOcrTextoLibre(
-    string textoOcr,
-    string nombreCampo,
-    float confianza,
-    int minimoCaracteres)
+     string textoOcr,
+     string nombreCampo,
+     float confianza,
+     int minimoCaracteres)
         {
-            string t = IndexadorCudService.NormalizarTextoLibre(textoOcr);
+            string crudo = textoOcr ?? string.Empty;
 
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[OCR TEXTO LIBRE] Campo: " + nombreCampo);
+            Debug.WriteLine("[OCR TEXTO LIBRE] Confianza: " + confianza);
+            Debug.WriteLine("[OCR TEXTO LIBRE] Crudo:");
+            Debug.WriteLine(crudo);
+
+            if (TextoLibreOcrEsBasura(crudo))
+            {
+                Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: texto crudo parece basura OCR.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR devolvió mayormente símbolos o texto basura para " + nombreCampo + ". Amplíe o ajuste el recorte.",
+                    crudo);
+            }
+
+            string t = IndexadorCudService.NormalizarTextoLibre(crudo);
             t = LimpiarRuidoTextoLibreOcr(t);
 
+            Debug.WriteLine("[OCR TEXTO LIBRE] Limpio:");
+            Debug.WriteLine(t);
+
+            if (TextoLibreOcrEsBasura(t))
+            {
+                Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: texto limpio sigue pareciendo basura OCR.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no produjo texto útil para " + nombreCampo + ". Revise el recorte.",
+                    t);
+            }
+
             if (string.IsNullOrWhiteSpace(t))
-                return ResultadoAplicacionOcr.Rechazar("El OCR no detectó texto útil para " + nombreCampo + ".");
+            {
+                Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: texto vacío.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no detectó texto útil para " + nombreCampo + ".");
+            }
 
             if (t.Length < minimoCaracteres)
-                return ResultadoAplicacionOcr.Rechazar("El texto OCR para " + nombreCampo + " es demasiado corto.", t);
+            {
+                Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: texto demasiado corto.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El texto OCR para " + nombreCampo + " es demasiado corto.",
+                    t);
+            }
 
             // Umbral bajo porque Tesseract puede dar confianza baja en texto correcto.
             if (confianza < 0.25f)
             {
+                Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: confianza baja.");
+                Debug.WriteLine("==================================================");
+
                 return ResultadoAplicacionOcr.Rechazar(
                     "Confianza OCR muy baja para " + nombreCampo + ". Revise el recorte o amplíe la selección.",
                     t);
             }
 
             if (nombreCampo == "Apellido y nombre")
+            {
                 t = IndexadorCudService.NormalizarNombreApellido(t);
 
+                ResultadoValidacion valNombre =
+                    IndexadorCudService.ValidarApellidoNombrePreprocesamiento(t);
+
+                if (!valNombre.EsValido)
+                {
+                    Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado por validación de apellido/nombre: " + valNombre.Mensaje);
+                    Debug.WriteLine("==================================================");
+
+                    return ResultadoAplicacionOcr.Rechazar(
+                        valNombre.Mensaje,
+                        t);
+                }
+            }
+
             if (nombreCampo == "Orientación prestacional")
-                t = IndexadorCudService.NormalizarOrientacion(t);
+            {
+                // Para orientación no conviene aceptar texto libre desde OCR.
+                // Usamos método estricto: si no detecta opción conocida, rechaza.
+                t = IndexadorCudService.NormalizarOrientacionDesdeOcr(t);
+
+                if (string.IsNullOrWhiteSpace(t))
+                {
+                    Debug.WriteLine("[OCR TEXTO LIBRE] Rechazado: orientación no coincide con opciones conocidas.");
+                    Debug.WriteLine("==================================================");
+
+                    return ResultadoAplicacionOcr.Rechazar(
+                        "El OCR no detectó una orientación prestacional válida.",
+                        textoOcr);
+                }
+            }
+
+            Debug.WriteLine("[OCR TEXTO LIBRE] OK:");
+            Debug.WriteLine(t);
+            Debug.WriteLine("==================================================");
 
             return ResultadoAplicacionOcr.Ok(t, nombreCampo + " OCR aceptado.");
         }
+
         private string LimpiarRuidoTextoLibreOcr(string texto)
         {
             if (string.IsNullOrWhiteSpace(texto))
@@ -4631,16 +5262,40 @@ namespace Indexador_GCBA_
 
             string t = texto.Trim();
 
+            t = t.Replace("\r", " ")
+                 .Replace("\n", " ")
+                 .Replace("\t", " ");
+
             t = t.Replace("—", " ")
+                 .Replace("–", " ")
                  .Replace("_", " ")
                  .Replace("¬", " ")
-                 .Replace("°", " ");
+                 .Replace("°", " ")
+                 .Replace("]", " ")
+                 .Replace("[", " ")
+                 .Replace(">", " ")
+                 .Replace("<", " ")
+                 .Replace("$", " ")
+                 .Replace("%", " ")
+                 .Replace("|", " ");
 
-            t = Regex.Replace(t, @"[-_]{3,}", " ");
-            t = Regex.Replace(t, @"\s+", " ");
+            // Borra cadenas largas de separadores.
+            t = Regex.Replace(t, @"[-_;:,\.\=]{2,}", " ");
 
-            return t.Trim();
+            // Deja letras, números, espacios y algunos signos razonables.
+            t = Regex.Replace(t, @"[^\p{L}\d\s\-/\(\)\.,]", " ");
+
+            t = Regex.Replace(t, @"\s+", " ").Trim();
+
+            // Limpieza de separadores colgados al inicio/final.
+            t = Regex.Replace(t, @"^[\-\.,;:/ ]+", "").Trim();
+            t = Regex.Replace(t, @"[\-\.,;:/ ]+$", "").Trim();
+
+            return t;
         }
+
+
+
         private ResultadoAplicacionOcr PrepararOcrSexo(string textoOcr)
         {
             string sexo = ExtraerSexoDesdeOcr(textoOcr);

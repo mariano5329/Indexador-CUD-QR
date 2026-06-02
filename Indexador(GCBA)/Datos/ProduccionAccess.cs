@@ -6,9 +6,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows.Forms;
-using Indexador_GCBA_.Entidades;
+using IndexadorCopidis.Entidades;
 
-namespace Indexador_GCBA_.Datos
+namespace IndexadorCopidis.Datos
 {
     public class ProduccionAccess
     {

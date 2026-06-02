@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Indexador_GCBA_.Servicios
+namespace IndexadorCopidis.Servicios
 {
     public enum SeveridadValidacion
     {

@@ -1,4 +1,4 @@
-﻿namespace Indexador_GCBA_
+﻿namespace IndexadorCopidis
 {
     partial class FormCopidis
     {
@@ -77,7 +77,6 @@
             this.tableLayoutPanel14 = new System.Windows.Forms.TableLayoutPanel();
             this.button11 = new System.Windows.Forms.Button();
             this.TxtNumCuil = new System.Windows.Forms.TextBox();
-            this.CmbSexo = new System.Windows.Forms.ComboBox();
             this.tableLayoutPanel11 = new System.Windows.Forms.TableLayoutPanel();
             this.button8 = new System.Windows.Forms.Button();
             this.TxtApellidoNombre = new System.Windows.Forms.TextBox();
@@ -108,6 +107,7 @@
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.txtRutaLote = new System.Windows.Forms.TextBox();
             this.btnSeleccionarLote = new System.Windows.Forms.Button();
+            this.CmbSexo = new System.Windows.Forms.ComboBox();
             this.TxtFechaVencimiento = new System.Windows.Forms.TextBox();
             this.TxtNumDNI = new System.Windows.Forms.TextBox();
             this.txtNombreImagen = new System.Windows.Forms.TextBox();
@@ -799,19 +799,6 @@
             this.TxtNumCuil.Size = new System.Drawing.Size(158, 24);
             this.TxtNumCuil.TabIndex = 256;
             // 
-            // CmbSexo
-            // 
-            this.CmbSexo.FormattingEnabled = true;
-            this.CmbSexo.Items.AddRange(new object[] {
-            "FEMENINO",
-            "MASCULINO",
-            "NO BINARIO"});
-            this.CmbSexo.Location = new System.Drawing.Point(109, 203);
-            this.CmbSexo.Name = "CmbSexo";
-            this.CmbSexo.Size = new System.Drawing.Size(121, 21);
-            this.CmbSexo.TabIndex = 289;
-            this.CmbSexo.TabStop = false;
-            // 
             // tableLayoutPanel11
             // 
             this.tableLayoutPanel11.ColumnCount = 2;
@@ -1141,6 +1128,19 @@
             this.btnSeleccionarLote.Text = "Asignar Lote";
             this.btnSeleccionarLote.UseVisualStyleBackColor = true;
             this.btnSeleccionarLote.Click += new System.EventHandler(this.btnSeleccionarLote_Click);
+            // 
+            // CmbSexo
+            // 
+            this.CmbSexo.FormattingEnabled = true;
+            this.CmbSexo.Items.AddRange(new object[] {
+            "FEMENINO",
+            "MASCULINO",
+            "NO BINARIO"});
+            this.CmbSexo.Location = new System.Drawing.Point(109, 203);
+            this.CmbSexo.Name = "CmbSexo";
+            this.CmbSexo.Size = new System.Drawing.Size(121, 21);
+            this.CmbSexo.TabIndex = 289;
+            this.CmbSexo.TabStop = false;
             // 
             // TxtFechaVencimiento
             // 
