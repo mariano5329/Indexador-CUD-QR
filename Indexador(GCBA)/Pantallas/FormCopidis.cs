@@ -96,13 +96,34 @@ namespace IndexadorCopidis
 
         private const int MIN_ANCHO_CUADRANTE_OCR = 8;
         private const int MIN_ALTO_CUADRANTE_OCR = 8;
-
+        private const int ALTO_PANEL_ZOOM_OCR = 180;
 
 
         private const int FACTOR_RENDER_OCR_CUADRANTE = 4;
         private const int DPI_RENDER_OCR_CUADRANTE = 300;
         private const int MAX_LADO_RENDER_OCR_CUADRANTE = 4200;
         private bool _configurandoBloquesCertificado = false;
+        private PerfilResolucion _perfilActual = PerfilResolucion.Escala145;
+
+
+        private enum PerfilResolucion
+        {
+            Escala100 = 0,
+            Escala115 = 1,
+            Escala130 = 2,
+            Escala145 = 3,
+            Escala160 = 4
+        }
+
+        private readonly Dictionary<Control, Rectangle> _boundsOriginales = new Dictionary<Control, Rectangle>();
+        private readonly Dictionary<Control, float> _fuentesOriginales = new Dictionary<Control, float>();
+
+        private Size _clientSizeOriginal;
+        private bool _layoutCapturado = false;
+        private bool _aplicandoResolucion = false;
+
+
+
 
         private enum EstadoCuadranteOcr
         {
@@ -114,7 +135,13 @@ namespace IndexadorCopidis
             ErrorNaranja
         }
 
-       
+        private PictureBox pictureBoxZoomOcr;
+        private const int ZOOM_OCR_ANCHO = 360;
+        private const int ZOOM_OCR_ALTO = 160;
+        private Panel panelZoomOcr;
+        private readonly Dictionary<Control, RectangleF> _zonasAjustadasOcrCertificadoActual =
+    new Dictionary<Control, RectangleF>();
+
 
 
         private Bitmap RenderizarPdfActualAltaDefinicionParaOcr()
@@ -203,11 +230,42 @@ namespace IndexadorCopidis
                 return null;
             }
         }
+        private float ObtenerEscalaPerfil(PerfilResolucion perfil)
+        {
+            switch (perfil)
+            {
+                case PerfilResolucion.Escala100:
+                    return 1.00f;
+
+                case PerfilResolucion.Escala115:
+                    return 1.15f;
+
+                case PerfilResolucion.Escala130:
+                    return 1.30f;
+
+                case PerfilResolucion.Escala145:
+                    return 1.45f;
+
+                case PerfilResolucion.Escala160:
+                    return 1.60f;
+
+                default:
+                    return 1.45f;
+            }
+        }
+
 
 
         public FormCopidis(Entidades.Indexador pIndexador)
         {
             InitializeComponent();
+
+    
+
+
+            CapturarLayoutOriginal();
+
+
 
             oIndexador = pIndexador;
 
@@ -228,6 +286,15 @@ namespace IndexadorCopidis
             ConfigurarFormularioCud();
         }
 
+
+        private void FormCopidis_Shown(object sender, EventArgs e)
+        {
+            ForzarMaximizado();
+            AplicarPerfilResolucion(_perfilActual);
+            ForzarMaximizado();
+        }
+
+
         // ==========================================================
         // CONFIGURACIÓN GENERAL CUD
         // ==========================================================
@@ -239,19 +306,60 @@ namespace IndexadorCopidis
             _toolTipCud.AutoPopDelay = 8000;
             _toolTipCud.InitialDelay = 300;
             _toolTipCud.ReshowDelay = 100;
-
             ConfigurarCombosCud();
             ConfigurarBloquesNumeroCertificado();
             ConfigurarEventosCud();
             ConfigurarOrdenTabulacionCud();
 
             ConfigurarSeleccionCuadranteOcr();
+            ConfigurarPreviewZoomOcr();
 
             RestaurarColoresFormularioCud();
         }
 
-   
 
+        private void ConfigurarPreviewZoomOcr()
+        {
+            panelZoomOcr = new Panel();
+            panelZoomOcr.Dock = DockStyle.Bottom;
+            panelZoomOcr.Height = ALTO_PANEL_ZOOM_OCR;
+            panelZoomOcr.BackColor = Color.WhiteSmoke;
+            panelZoomOcr.Visible = false;
+
+            pictureBoxZoomOcr = new PictureBox();
+            pictureBoxZoomOcr.Dock = DockStyle.Fill;
+            pictureBoxZoomOcr.BackColor = Color.White;
+            pictureBoxZoomOcr.BorderStyle = BorderStyle.FixedSingle;
+            pictureBoxZoomOcr.BorderStyle = BorderStyle.None;
+            pictureBoxZoomOcr.Paint -= PictureBoxZoomOcr_Paint;
+            pictureBoxZoomOcr.Paint += PictureBoxZoomOcr_Paint;
+            panelZoomOcr.Height = 280;
+            pictureBoxZoomOcr.SizeMode = PictureBoxSizeMode.Zoom;
+
+            panelZoomOcr.Controls.Add(pictureBoxZoomOcr);
+
+            // Reemplazá panel4 por el nombre real de tu panel.
+            panel4.Controls.Add(panelZoomOcr);
+            panelZoomOcr.BringToFront();
+        }
+        private void PictureBoxZoomOcr_Paint(object sender, PaintEventArgs e)
+        {
+            if (pictureBoxZoomOcr == null)
+                return;
+
+            Rectangle rect = pictureBoxZoomOcr.ClientRectangle;
+
+            if (rect.Width <= 0 || rect.Height <= 0)
+                return;
+
+            rect.Width -= 1;
+            rect.Height -= 1;
+
+            using (Pen pen = new Pen(Color.LimeGreen, 5))
+            {
+                e.Graphics.DrawRectangle(pen, rect);
+            }
+        }
         private void ConfigurarCombosCud()
         {
             CmbSexo.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -358,7 +466,7 @@ namespace IndexadorCopidis
                 return;
             }
 
-            if (dni.Length < 7 || dni.Length > 8)
+            if (dni.Length < 6 || dni.Length > 8)
             {
                 MarcarCampo(
                     TxtNumCuil,
@@ -432,8 +540,6 @@ namespace IndexadorCopidis
             TxtCertBloque7.TabIndex = 6;
 
             TxtApellidoNombre.TabIndex = 7;
-            //CmbSexo.TabIndex = 8;
-            //TxtNumDNI.TabIndex = 8;
             TxtNumCuil.TabIndex = 8;
             TxtFechaNac.TabIndex = 9;
             TxtDiagnostico.TabIndex = 10;
@@ -442,15 +548,20 @@ namespace IndexadorCopidis
             TxtActividad_Particip.TabIndex = 13;
             TxtFactoresAmbientales.TabIndex = 14;
             TxtOrientacion.TabIndex = 15;
-            TxtFechaVencimiento.TabIndex = 16;
-            CmbAcomapante.TabIndex = 17;
-            TxtFechaEmision.TabIndex = 18;
-            btnGrabar.TabIndex = 19;
+            CmbAcomapante.TabIndex = 16;
+            btnGrabar.TabIndex = 17;
+
+            // No entran en el recorrido manual de carga.
+            TxtFechaVencimiento.TabIndex = 90;
+            TxtFechaEmision.TabIndex = 91;
 
             foreach (Control c in ObtenerControlesCargaCud())
             {
                 c.TabStop = true;
             }
+
+            TxtFechaVencimiento.TabStop = false;
+            TxtFechaEmision.TabStop = false;
 
             btnGrabar.TabStop = true;
         }
@@ -468,8 +579,6 @@ namespace IndexadorCopidis
         TxtCertBloque7,
 
         TxtApellidoNombre,
-      
-   
         TxtNumCuil,
         TxtFechaNac,
         TxtDiagnostico,
@@ -478,9 +587,7 @@ namespace IndexadorCopidis
         TxtActividad_Particip,
         TxtFactoresAmbientales,
         TxtOrientacion,
-        TxtFechaVencimiento,
-        CmbAcomapante,
-        TxtFechaEmision
+        CmbAcomapante
     };
         }
 
@@ -1380,6 +1487,7 @@ namespace IndexadorCopidis
 
         private void CargarFicha(string ruta)
         {
+            _zonasAjustadasOcrCertificadoActual.Clear();
             CargarPDFEnPictureBox(ruta);
             HabilitarBotones();
         }
@@ -3654,6 +3762,9 @@ namespace IndexadorCopidis
 
         private void FormActasDeNacimiento_Load(object sender, EventArgs e)
         {
+     
+
+
             try
             {
                 using (var oCon = ConexionAccess.ObtenerConexion1())
@@ -3894,6 +4005,9 @@ namespace IndexadorCopidis
         {
             OcultarCuadranteOcr();
         }
+
+
+
         private void MostrarCuadranteSugeridoParaControl(Control control)
         {
             if (pictureBox1.Image == null)
@@ -3907,10 +4021,13 @@ namespace IndexadorCopidis
 
             RectangleF zonaNormalizada;
 
-            if (!_zonasSugeridasOcrCud.TryGetValue(control, out zonaNormalizada))
+            if (!_zonasAjustadasOcrCertificadoActual.TryGetValue(control, out zonaNormalizada))
             {
-                OcultarCuadranteOcr();
-                return;
+                if (!_zonasSugeridasOcrCud.TryGetValue(control, out zonaNormalizada))
+                {
+                    OcultarCuadranteOcr();
+                    return;
+                }
             }
 
             Rectangle rect = ConvertirZonaNormalizadaARectanguloVista(zonaNormalizada);
@@ -3931,6 +4048,182 @@ namespace IndexadorCopidis
             Debug.WriteLine("[OCR CUADRANTE] Rectángulo sugerido vista: " + _rectanguloSeleccionVistaOcr);
 
             pictureBox1.Invalidate();
+            ActualizarPreviewZoomOcr();
+        }
+
+        private RectangleF ConvertirRectanguloVistaAZonaNormalizada(Rectangle rectVista)
+        {
+            Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+            if (areaImagen == Rectangle.Empty)
+                return RectangleF.Empty;
+
+            Rectangle rectLimitado = Rectangle.Intersect(rectVista, areaImagen);
+
+            if (rectLimitado.Width <= 0 || rectLimitado.Height <= 0)
+                return RectangleF.Empty;
+
+            float x = (float)(rectLimitado.X - areaImagen.X) / areaImagen.Width;
+            float y = (float)(rectLimitado.Y - areaImagen.Y) / areaImagen.Height;
+            float width = (float)rectLimitado.Width / areaImagen.Width;
+            float height = (float)rectLimitado.Height / areaImagen.Height;
+
+            return new RectangleF(x, y, width, height);
+        }
+        private void RecordarCuadranteActualParaControlActivo()
+        {
+            if (_controlDestinoOcrActivo == null)
+                return;
+
+            if (!CuadranteOcrTieneTamanioValido(_rectanguloSeleccionVistaOcr))
+                return;
+
+            RectangleF zonaNormalizada =
+                ConvertirRectanguloVistaAZonaNormalizada(_rectanguloSeleccionVistaOcr);
+
+            if (zonaNormalizada == RectangleF.Empty)
+                return;
+
+            _zonasAjustadasOcrCertificadoActual[_controlDestinoOcrActivo] = zonaNormalizada;
+
+            Debug.WriteLine("[OCR CUADRANTE] Zona ajustada recordada para: " + _controlDestinoOcrActivo.Name);
+        }
+
+
+
+        private void ActualizarPreviewZoomOcr()
+        {
+            if (pictureBox1.Image == null || pictureBoxZoomOcr == null)
+                return;
+
+            if (_rectanguloSeleccionVistaOcr == Rectangle.Empty ||
+                !CuadranteOcrTieneTamanioValido(_rectanguloSeleccionVistaOcr))
+            {
+                OcultarPreviewZoomOcr();
+                return;
+            }
+
+            Rectangle rectImagenBase = ConvertirRectanguloVistaAImagenParaZoom(_rectanguloSeleccionVistaOcr);
+
+            if (rectImagenBase == Rectangle.Empty)
+            {
+                OcultarPreviewZoomOcr();
+                return;
+            }
+
+            Bitmap imagenHd = RenderizarPdfActualAltaDefinicionParaOcr();
+
+            if (imagenHd == null)
+                imagenHd = new Bitmap(pictureBox1.Image);
+
+            using (imagenHd)
+            {
+                float escalaX = (float)imagenHd.Width / pictureBox1.Image.Width;
+                float escalaY = (float)imagenHd.Height / pictureBox1.Image.Height;
+
+                Rectangle rectHd = new Rectangle(
+                    (int)Math.Round(rectImagenBase.X * escalaX),
+                    (int)Math.Round(rectImagenBase.Y * escalaY),
+                    (int)Math.Round(rectImagenBase.Width * escalaX),
+                    (int)Math.Round(rectImagenBase.Height * escalaY));
+
+                rectHd = LimitarRectanguloAImagen(rectHd, imagenHd);
+
+                if (rectHd == Rectangle.Empty)
+                {
+                    OcultarPreviewZoomOcr();
+                    return;
+                }
+
+                Bitmap recorteHd = new Bitmap(rectHd.Width, rectHd.Height);
+
+                using (Graphics g = Graphics.FromImage(recorteHd))
+                {
+                    g.Clear(Color.White);
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+
+                    g.DrawImage(
+                        imagenHd,
+                        new Rectangle(0, 0, recorteHd.Width, recorteHd.Height),
+                        rectHd,
+                        GraphicsUnit.Pixel);
+                }
+
+                if (pictureBoxZoomOcr.Image != null)
+                {
+                    Image anterior = pictureBoxZoomOcr.Image;
+                    pictureBoxZoomOcr.Image = null;
+                    anterior.Dispose();
+                }
+
+                pictureBoxZoomOcr.Image = recorteHd;
+                panelZoomOcr.Visible = true;
+                panelZoomOcr.BringToFront();
+            }
+        }
+
+        private Rectangle LimitarRectanguloAImagen(Rectangle rect, Image imagen)
+        {
+            if (imagen == null)
+                return Rectangle.Empty;
+
+            Rectangle areaImagen = new Rectangle(0, 0, imagen.Width, imagen.Height);
+            Rectangle interseccion = Rectangle.Intersect(rect, areaImagen);
+
+            if (interseccion.Width <= 0 || interseccion.Height <= 0)
+                return Rectangle.Empty;
+
+            return interseccion;
+        }
+
+        private Rectangle ConvertirRectanguloVistaAImagenParaZoom(Rectangle rectanguloVista)
+        {
+            Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
+
+            if (areaImagen == Rectangle.Empty)
+                return Rectangle.Empty;
+
+            Rectangle interseccion = Rectangle.Intersect(rectanguloVista, areaImagen);
+
+            if (interseccion.Width <= 0 || interseccion.Height <= 0)
+                return Rectangle.Empty;
+
+            float escalaX = (float)pictureBox1.Image.Width / areaImagen.Width;
+            float escalaY = (float)pictureBox1.Image.Height / areaImagen.Height;
+
+            int x = (int)Math.Round((interseccion.X - areaImagen.X) * escalaX);
+            int y = (int)Math.Round((interseccion.Y - areaImagen.Y) * escalaY);
+            int width = (int)Math.Round(interseccion.Width * escalaX);
+            int height = (int)Math.Round(interseccion.Height * escalaY);
+
+            if (x < 0) x = 0;
+            if (y < 0) y = 0;
+
+            if (x + width > pictureBox1.Image.Width)
+                width = pictureBox1.Image.Width - x;
+
+            if (y + height > pictureBox1.Image.Height)
+                height = pictureBox1.Image.Height - y;
+
+            if (width <= 0 || height <= 0)
+                return Rectangle.Empty;
+
+            return new Rectangle(x, y, width, height);
+        }
+
+        private void OcultarPreviewZoomOcr()
+        {
+            if (panelZoomOcr != null)
+                panelZoomOcr.Visible = false;
+
+            if (pictureBoxZoomOcr != null && pictureBoxZoomOcr.Image != null)
+            {
+                Image anterior = pictureBoxZoomOcr.Image;
+                pictureBoxZoomOcr.Image = null;
+                anterior.Dispose();
+            }
         }
         private Rectangle ConvertirZonaNormalizadaARectanguloVista(RectangleF zona)
         {
@@ -4092,7 +4385,7 @@ namespace IndexadorCopidis
                 Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
 
                 _rectanguloSeleccionVistaOcr = Rectangle.Intersect(rect, areaImagen);
-
+                ActualizarPreviewZoomOcr();
                 pictureBox1.Invalidate();
                 return;
             }
@@ -4151,6 +4444,8 @@ namespace IndexadorCopidis
                 OcultarCuadranteOcr();
                 return;
             }
+
+            RecordarCuadranteActualParaControlActivo();
 
             _estadoCuadranteOcr = EstadoCuadranteOcr.ConfirmadoVerde;
             pictureBox1.Invalidate();
@@ -5735,7 +6030,7 @@ namespace IndexadorCopidis
             _rectanguloSeleccionVistaOcr = Rectangle.Empty;
             _puntoInicioCuadranteOcr = Point.Empty;
             _offsetMovimientoCuadranteOcr = Point.Empty;
-
+            OcultarPreviewZoomOcr();
             if (pictureBox1 != null)
                 pictureBox1.Invalidate();
         }
@@ -6327,5 +6622,117 @@ namespace IndexadorCopidis
         }
 
 
+
+        private void AplicarPerfilResolucion(PerfilResolucion perfil)
+        {
+            if (!_layoutCapturado)
+                return;
+
+            _aplicandoResolucion = true;
+
+            float escala = ObtenerEscalaPerfil(perfil);
+
+            this.SuspendLayout();
+
+            AplicarEscalaControl(this, escala);
+
+            this.ResumeLayout(true);
+
+            _aplicandoResolucion = false;
+
+            ForzarMaximizado();
+        }
+        private void ForzarMaximizado()
+        {
+            if (this.WindowState != FormWindowState.Maximized)
+                this.WindowState = FormWindowState.Maximized;
+
+            this.BeginInvoke(new Action(delegate
+            {
+                if (!this.IsDisposed)
+                    this.WindowState = FormWindowState.Maximized;
+            }));
+        }
+
+
+        private void CapturarLayoutOriginal()
+        {
+            if (_layoutCapturado)
+                return;
+
+            _clientSizeOriginal = this.ClientSize;
+
+            CapturarControlOriginal(this);
+
+            _layoutCapturado = true;
+        }
+
+        private void CapturarControlOriginal(Control control)
+        {
+            foreach (Control hijo in control.Controls)
+            {
+                _boundsOriginales[hijo] = hijo.Bounds;
+
+                if (hijo.Font != null)
+                    _fuentesOriginales[hijo] = hijo.Font.Size;
+
+                if (hijo.HasChildren)
+                    CapturarControlOriginal(hijo);
+            }
+        }
+
+
+        private void AplicarEscalaControl(Control control, float escala)
+        {
+            foreach (Control hijo in control.Controls)
+            {
+                if (_boundsOriginales.TryGetValue(hijo, out Rectangle original))
+                {
+                    hijo.Bounds = new Rectangle(
+                        (int)(original.X * escala),
+                        (int)(original.Y * escala),
+                        (int)(original.Width * escala),
+                        (int)(original.Height * escala)
+                    );
+                }
+
+                if (_fuentesOriginales.TryGetValue(hijo, out float fuenteOriginal))
+                {
+                    float nuevaFuente = fuenteOriginal * escala;
+
+                    if (nuevaFuente < 7f)
+                        nuevaFuente = 7f;
+
+                    hijo.Font = new Font(
+                        hijo.Font.FontFamily,
+                        nuevaFuente,
+                        hijo.Font.Style
+                    );
+                }
+
+                if (hijo.HasChildren)
+                    AplicarEscalaControl(hijo, escala);
+            }
+        }
+
+        private void CmbReso_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_aplicandoResolucion)
+                return;
+
+            if (CmbReso.SelectedIndex < 0)
+                return;
+
+            _perfilActual = (PerfilResolucion)  CmbReso.SelectedIndex;
+
+            AplicarPerfilResolucion(_perfilActual);
+        }
+
+        private void FormCopidis_Shown_1(object sender, EventArgs e)
+        {
+            ForzarMaximizado();
+            AplicarPerfilResolucion(_perfilActual);
+            ForzarMaximizado();
+        }
     }
 }

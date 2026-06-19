@@ -1474,7 +1474,7 @@ namespace IndexadorCopidis.Servicios
 
             string dni = dni11.TrimStart('0');
 
-            if (dni.Length < 7 || dni.Length > 8)
+            if (dni.Length < 6 || dni.Length > 8)
             {
                 r.Mensaje = "El DNI incluido en el número de certificado no tiene longitud válida.";
                 return r;
