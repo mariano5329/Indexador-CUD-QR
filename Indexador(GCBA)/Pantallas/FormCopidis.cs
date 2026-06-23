@@ -106,6 +106,10 @@ namespace IndexadorCopidis
         private PerfilResolucion _perfilActual = PerfilResolucion.Escala145;
 
 
+        private Bitmap _imagenOcrHdCache = null;
+        private string _rutaImagenOcrHdCache = string.Empty;
+
+
         private enum PerfilResolucion
         {
             Escala100 = 0,
@@ -1487,6 +1491,8 @@ namespace IndexadorCopidis
 
         private void CargarFicha(string ruta)
         {
+            LimpiarCacheOcrHd();
+
             _zonasAjustadasOcrCertificadoActual.Clear();
             CargarPDFEnPictureBox(ruta);
             HabilitarBotones();
@@ -3152,7 +3158,7 @@ namespace IndexadorCopidis
 
         private void LimpiarTextBox()
         {
-
+            LimpiarCacheOcrHd();
             OcultarCuadranteOcr();
             pictureBox1.Image = null;
 
@@ -4111,57 +4117,57 @@ namespace IndexadorCopidis
                 return;
             }
 
-            Bitmap imagenHd = RenderizarPdfActualAltaDefinicionParaOcr();
+            Bitmap imagenHd = ObtenerImagenOcrHdCacheParaPreview();
 
             if (imagenHd == null)
-                imagenHd = new Bitmap(pictureBox1.Image);
-
-            using (imagenHd)
             {
-                float escalaX = (float)imagenHd.Width / pictureBox1.Image.Width;
-                float escalaY = (float)imagenHd.Height / pictureBox1.Image.Height;
-
-                Rectangle rectHd = new Rectangle(
-                    (int)Math.Round(rectImagenBase.X * escalaX),
-                    (int)Math.Round(rectImagenBase.Y * escalaY),
-                    (int)Math.Round(rectImagenBase.Width * escalaX),
-                    (int)Math.Round(rectImagenBase.Height * escalaY));
-
-                rectHd = LimitarRectanguloAImagen(rectHd, imagenHd);
-
-                if (rectHd == Rectangle.Empty)
-                {
-                    OcultarPreviewZoomOcr();
-                    return;
-                }
-
-                Bitmap recorteHd = new Bitmap(rectHd.Width, rectHd.Height);
-
-                using (Graphics g = Graphics.FromImage(recorteHd))
-                {
-                    g.Clear(Color.White);
-                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-
-                    g.DrawImage(
-                        imagenHd,
-                        new Rectangle(0, 0, recorteHd.Width, recorteHd.Height),
-                        rectHd,
-                        GraphicsUnit.Pixel);
-                }
-
-                if (pictureBoxZoomOcr.Image != null)
-                {
-                    Image anterior = pictureBoxZoomOcr.Image;
-                    pictureBoxZoomOcr.Image = null;
-                    anterior.Dispose();
-                }
-
-                pictureBoxZoomOcr.Image = recorteHd;
-                panelZoomOcr.Visible = true;
-                panelZoomOcr.BringToFront();
+                OcultarPreviewZoomOcr();
+                return;
             }
+
+            float escalaX = (float)imagenHd.Width / pictureBox1.Image.Width;
+            float escalaY = (float)imagenHd.Height / pictureBox1.Image.Height;
+
+            Rectangle rectHd = new Rectangle(
+                (int)Math.Round(rectImagenBase.X * escalaX),
+                (int)Math.Round(rectImagenBase.Y * escalaY),
+                (int)Math.Round(rectImagenBase.Width * escalaX),
+                (int)Math.Round(rectImagenBase.Height * escalaY));
+
+            rectHd = LimitarRectanguloAImagen(rectHd, imagenHd);
+
+            if (rectHd == Rectangle.Empty)
+            {
+                OcultarPreviewZoomOcr();
+                return;
+            }
+
+            Bitmap recorteHd = new Bitmap(rectHd.Width, rectHd.Height);
+
+            using (Graphics g = Graphics.FromImage(recorteHd))
+            {
+                g.Clear(Color.White);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+
+                g.DrawImage(
+                    imagenHd,
+                    new Rectangle(0, 0, recorteHd.Width, recorteHd.Height),
+                    rectHd,
+                    GraphicsUnit.Pixel);
+            }
+
+            if (pictureBoxZoomOcr.Image != null)
+            {
+                Image anterior = pictureBoxZoomOcr.Image;
+                pictureBoxZoomOcr.Image = null;
+                anterior.Dispose();
+            }
+
+            pictureBoxZoomOcr.Image = recorteHd;
+            panelZoomOcr.Visible = true;
+            panelZoomOcr.BringToFront();
         }
 
         private Rectangle LimitarRectanguloAImagen(Rectangle rect, Image imagen)
@@ -4554,7 +4560,7 @@ namespace IndexadorCopidis
                 Size tamanioPictureBox = pictureBox1.ClientSize;
                 PictureBoxSizeMode sizeMode = pictureBox1.SizeMode;
 
-                Bitmap imagenParaOcr = RenderizarPdfActualAltaDefinicionParaOcr();
+                Bitmap imagenParaOcr = ObtenerImagenOcrHdDesdeCache();
 
                 if (imagenParaOcr == null)
                 {
@@ -4766,7 +4772,7 @@ namespace IndexadorCopidis
                 return PrepararOcrDiagnostico(crudo, confianza);
 
             if (destino == TxtOrientacion)
-                return PrepararOcrTextoLibre(crudo, "Orientación prestacional", confianza, minimoCaracteres: 5);
+                return PrepararOcrOrientacion(crudo, confianza);
 
             if (destino == CmbSexo)
                 return PrepararOcrSexo(crudo);
@@ -4777,20 +4783,119 @@ namespace IndexadorCopidis
             return ResultadoAplicacionOcr.Rechazar("Campo destino no soportado para OCR.");
         }
 
+        private ResultadoAplicacionOcr PrepararOcrOrientacion(string textoOcr, float confianza)
+        {
+            string crudo = textoOcr ?? string.Empty;
 
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[OCR ORIENTACION] Confianza: " + confianza);
+            Debug.WriteLine("[OCR ORIENTACION] Crudo:");
+            Debug.WriteLine(crudo);
+
+            if (string.IsNullOrWhiteSpace(crudo))
+            {
+                Debug.WriteLine("[OCR ORIENTACION] Rechazado: texto vacío.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no detectó texto para Orientación prestacional.");
+            }
+
+            // ==========================================================
+            // CLAVE:
+            // Primero intentamos detectar una orientación conocida.
+            // Aunque el OCR traiga basura visual después, si aparece una opción
+            // válida como PRESTACIONES DE REHABILITACION, debe aceptarse.
+            // ==========================================================
+            string orientacionCanonica = IndexadorCudService.NormalizarOrientacionDesdeOcr(crudo);
+
+            Debug.WriteLine("[OCR ORIENTACION] Canonizada desde crudo:");
+            Debug.WriteLine(orientacionCanonica);
+
+            if (!string.IsNullOrWhiteSpace(orientacionCanonica))
+            {
+                Debug.WriteLine("[OCR ORIENTACION] OK por opción conocida.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Ok(
+                    orientacionCanonica,
+                    "Orientación prestacional OCR aceptada.");
+            }
+
+            // ==========================================================
+            // Segundo intento: limpieza suave y nueva canonización.
+            // Esto ayuda cuando el encabezado viene mal leído:
+            // DIRIEN TACIÓN PRESIACIONAL, ORIENTACION PRESTACIONAL, etc.
+            // ==========================================================
+            string limpio = LimpiarRuidoTextoLibreOcr(crudo);
+
+            Debug.WriteLine("[OCR ORIENTACION] Limpio:");
+            Debug.WriteLine(limpio);
+
+            orientacionCanonica = IndexadorCudService.NormalizarOrientacionDesdeOcr(limpio);
+
+            Debug.WriteLine("[OCR ORIENTACION] Canonizada desde limpio:");
+            Debug.WriteLine(orientacionCanonica);
+
+            if (!string.IsNullOrWhiteSpace(orientacionCanonica))
+            {
+                Debug.WriteLine("[OCR ORIENTACION] OK por opción conocida luego de limpieza.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Ok(
+                    orientacionCanonica,
+                    "Orientación prestacional OCR aceptada.");
+            }
+
+            // ==========================================================
+            // Recién acá aplicamos filtro de basura.
+            // Para orientación no debe bloquear antes, porque el OCR puede traer
+            // símbolos extra pero igual contener una opción válida.
+            // ==========================================================
+            if (TextoLibreOcrEsBasura(crudo))
+            {
+                Debug.WriteLine("[OCR ORIENTACION] Rechazado: no se detectó opción conocida y el texto parece basura OCR.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "El OCR no detectó una orientación prestacional válida. Ajuste el recorte.",
+                    crudo);
+            }
+
+            if (confianza < 0.20f)
+            {
+                Debug.WriteLine("[OCR ORIENTACION] Rechazado: confianza baja y sin opción conocida.");
+                Debug.WriteLine("==================================================");
+
+                return ResultadoAplicacionOcr.Rechazar(
+                    "Confianza OCR muy baja para Orientación prestacional. Revise el recorte.",
+                    crudo);
+            }
+
+            Debug.WriteLine("[OCR ORIENTACION] Rechazado: texto no coincide con opciones conocidas.");
+            Debug.WriteLine("==================================================");
+
+            return ResultadoAplicacionOcr.Rechazar(
+                "El OCR no detectó una orientación prestacional válida.",
+                crudo);
+        }
 
         private ResultadoAplicacionOcr PrepararOcrNumeroCertificado(string textoOcr, float confianza)
         {
-            string t = textoOcr.ToUpperInvariant();
+            string t = textoOcr ?? string.Empty;
+
+            t = t.ToUpperInvariant();
 
             t = t.Replace("—", "-")
                  .Replace("–", "-")
-                 .Replace("_", "-")
-                 .Replace(" ", "");
+                 .Replace("−", "-")
+                 .Replace("_", "-");
+
+            t = Regex.Replace(t, @"\s+", "");
 
             Match m = Regex.Match(
                 t,
-                @"ARG-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}",
+                @"[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}",
                 RegexOptions.IgnoreCase);
 
             if (!m.Success)
@@ -6654,7 +6759,60 @@ namespace IndexadorCopidis
             }));
         }
 
+        private Bitmap ObtenerImagenOcrHdDesdeCache()
+        {
+            if (_imagenOcrHdCache != null &&
+                string.Equals(_rutaImagenOcrHdCache, RutaNombreImagen, StringComparison.OrdinalIgnoreCase))
+            {
+                // Devolvemos una copia para que el OCR pueda disponerla sin romper la caché.
+                return new Bitmap(_imagenOcrHdCache);
+            }
 
+            LimpiarCacheOcrHd();
+
+            Bitmap render = RenderizarPdfActualAltaDefinicionParaOcr();
+
+            if (render == null)
+                return null;
+
+            _imagenOcrHdCache = render;
+            _rutaImagenOcrHdCache = RutaNombreImagen;
+
+            return new Bitmap(_imagenOcrHdCache);
+        }
+
+        private Bitmap ObtenerImagenOcrHdCacheParaPreview()
+        {
+            if (_imagenOcrHdCache != null &&
+                string.Equals(_rutaImagenOcrHdCache, RutaNombreImagen, StringComparison.OrdinalIgnoreCase))
+            {
+                // Para preview no hace falta clonar.
+                return _imagenOcrHdCache;
+            }
+
+            LimpiarCacheOcrHd();
+
+            Bitmap render = RenderizarPdfActualAltaDefinicionParaOcr();
+
+            if (render == null)
+                return null;
+
+            _imagenOcrHdCache = render;
+            _rutaImagenOcrHdCache = RutaNombreImagen;
+
+            return _imagenOcrHdCache;
+        }
+
+        private void LimpiarCacheOcrHd()
+        {
+            if (_imagenOcrHdCache != null)
+            {
+                _imagenOcrHdCache.Dispose();
+                _imagenOcrHdCache = null;
+            }
+
+            _rutaImagenOcrHdCache = string.Empty;
+        }
         private void CapturarLayoutOriginal()
         {
             if (_layoutCapturado)

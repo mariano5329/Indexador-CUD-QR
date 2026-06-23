@@ -1298,7 +1298,7 @@
             this.Margin = new System.Windows.Forms.Padding(4);
             this.Name = "FormCopidis";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "Certificado de Discapacidad";
+            this.Text = "Certificado de Discapacidad (V 1)";
             this.Load += new System.EventHandler(this.FormActasDeNacimiento_Load);
             this.Shown += new System.EventHandler(this.FormCopidis_Shown_1);
             this.Resize += new System.EventHandler(this.FormActasDeNacimiento_Resize);

@@ -93,12 +93,10 @@ namespace IndexadorCopidis.Servicios
     public static class IndexadorCudService
     {
         private static readonly Regex RegexNumeroCertificado = new Regex(
-            @"^ARG-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}$",
+            @"^[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        private static readonly Regex RegexCodigoCif = new Regex(
-            @"^[bsde]\d{2,4}(\.[+-]?\d{1,4})+$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
 
         // ==========================================================
         // CARACTERES PERMITIDOS
@@ -944,7 +942,8 @@ namespace IndexadorCopidis.Servicios
 
             System.Diagnostics.Debug.Print("[CIF OCR] Texto pre-limpieza: " + t);
 
-            List<string> codigos = new List<string>();
+            List<CandidatoCifOcr> codigos = new List<CandidatoCifOcr>();
+            int ordenInternoCif = 0;
 
             // Guarda los rangos del texto que ya fueron tomados como código con letra.
             // Esto evita que el mismo "s110.888" sea leído después como "sin letra".
@@ -961,6 +960,20 @@ namespace IndexadorCopidis.Servicios
             string digitoOcrInicioSinLetra = @"0-9oOiIlLzZ";
 
             // ==========================================================
+            // REGLA ESPECÍFICA COPIDIS - FACTORES AMBIENTALES
+            //
+            // Solo para letra 'e' se acepta el patrón con doble punto:
+            // e2500..3
+            // e2501..+3
+            //
+            // No se habilita para b, s ni d.
+            // ==========================================================
+            string patronDoblePuntoFactorAmbiental =
+                letraEsperada == 'e'
+                    ? @"\s*\.\s*\.\s*[+-]?\s*[" + digitoOcr + @"]{1,2}|"
+                    : string.Empty;
+
+            // ==========================================================
             // 1) Códigos que ya tienen la letra esperada.
             // ==========================================================
             string patronConLetra =
@@ -970,6 +983,7 @@ namespace IndexadorCopidis.Servicios
                 @"\s*[" + digitoOcr + @"]{2,6}" +
                 @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){0,3}" +
                 @"(?:" +
+                    patronDoblePuntoFactorAmbiental +
                     @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
                     @"|" +
                     @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
@@ -986,9 +1000,8 @@ namespace IndexadorCopidis.Servicios
 
                 if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
                 {
-                    if (!codigos.Contains(codigoFinal))
+                    if (AgregarCodigoCifOcrOrdenado(codigos, codigoFinal, m.Index, ref ordenInternoCif))
                     {
-                        codigos.Add(codigoFinal);
                         rangosYaTomados.Add(new Tuple<int, int>(m.Index, m.Length));
 
                         System.Diagnostics.Debug.Print("[CIF OCR] Aceptado: " + codigoFinal);
@@ -1018,6 +1031,7 @@ namespace IndexadorCopidis.Servicios
                     @"([" + digitoOcr + @"]{2,6}" +
                     @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){0,3}" +
                     @"(?:" +
+                        patronDoblePuntoFactorAmbiental +
                         @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
                         @"|" +
                         @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
@@ -1047,7 +1061,9 @@ namespace IndexadorCopidis.Servicios
                     string cuerpo = cuerpoDetectado.Trim().ToLowerInvariant();
                     cuerpo = Regex.Replace(cuerpo, @"\s+", "");
 
-                    NormalizarSoloNumeroCifDesdeOcr(cuerpo, letraEsperada);
+                    // Corrección importante:
+                    // antes se llamaba al método, pero no se asignaba el resultado.
+                    cuerpo = NormalizarSoloNumeroCifDesdeOcr(cuerpo, letraEsperada);
 
                     string codigoFinal = letraEsperada + cuerpo;
                     codigoFinal = NormalizarCodigosCif(codigoFinal);
@@ -1060,12 +1076,11 @@ namespace IndexadorCopidis.Servicios
 
                     if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
                     {
-                        if (!codigos.Contains(codigoFinal))
+                        if (AgregarCodigoCifOcrOrdenado(codigos, codigoFinal, m.Index, ref ordenInternoCif))
                         {
-                            codigos.Add(codigoFinal);
                             rangosYaTomados.Add(new Tuple<int, int>(m.Index, m.Length));
 
-                            System.Diagnostics.Debug.Print("[CIF OCR] Aceptado con letra inicial corregida: " + codigoFinal);
+                            System.Diagnostics.Debug.Print("[CIF OCR] Aceptado: " + codigoFinal);
                         }
                         else
                         {
@@ -1085,17 +1100,44 @@ namespace IndexadorCopidis.Servicios
             // Importante:
             // - No debe volver a tomar códigos ya encontrados con letra.
             // - No debe aceptar candidatos que arranquen con letra.
+            //
+            // Para Factores Ambientales también se permite recuperar:
+            // 2500..3   -> e2500..3
+            // 2501..+3  -> e2501..+3
             // ==========================================================
+
             string patronSinLetra =
                 @"(?<![a-zA-Z0-9])" +
                 @"[" + digitoOcrInicioSinLetra + @"]" +
                 @"[" + digitoOcr + @"]{1,5}" +
-                @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){1,3}" +
                 @"(?:" +
-                    @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
-                    @"|" +
-                    @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
-                @")?" +
+                    // Formato general sin letra:
+                    // 240.23
+                    // 110.888
+                    // 11.1.+3
+                    @"(?:\s*\.\s*[" + digitoOcr + @"]{1,4}){1,3}" +
+                    @"(?:" +
+                        @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                        @"|" +
+                        @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                    @")?" +
+
+                    // Formatos ambientales sin letra inicial, solo si se espera 'e':
+                    // 2500..3
+                    // 2501..+3
+                    // 5801.+3
+                    // 5801-3
+                    (
+                        letraEsperada == 'e'
+                            ? @"|" +
+                              @"\s*\.\s*\.\s*[+-]?\s*[" + digitoOcr + @"]{1,2}" +
+                              @"|" +
+                              @"\s*\.\s*[+-]\s*[" + digitoOcr + @"]{1,2}" +
+                              @"|" +
+                              @"\s*[+-]\s*[" + digitoOcr + @"]{1,2}"
+                            : string.Empty
+                    ) +
+                @")" +
                 @"(?:\s*\+)?" +
                 @"(?![a-zA-Z])";
 
@@ -1121,8 +1163,8 @@ namespace IndexadorCopidis.Servicios
                 }
 
                 string numero = NormalizarSoloNumeroCifDesdeOcr(
-           candidatoCrudo.Replace(" ", ""),
-           letraEsperada);
+                    candidatoCrudo.Replace(" ", ""),
+                    letraEsperada);
 
                 string codigoFinal = letraEsperada + numero;
                 codigoFinal = NormalizarCodigosCif(codigoFinal);
@@ -1131,10 +1173,11 @@ namespace IndexadorCopidis.Servicios
 
                 if (CodigoCifOcrPareceValido(codigoFinal, letraEsperada))
                 {
-                    if (!codigos.Contains(codigoFinal))
+                    if (AgregarCodigoCifOcrOrdenado(codigos, codigoFinal, m.Index, ref ordenInternoCif))
                     {
-                        codigos.Add(codigoFinal);
-                        System.Diagnostics.Debug.Print("[CIF OCR] Aceptado sin letra: " + codigoFinal);
+                        rangosYaTomados.Add(new Tuple<int, int>(m.Index, m.Length));
+
+                        System.Diagnostics.Debug.Print("[CIF OCR] Aceptado: " + codigoFinal);
                     }
                     else
                     {
@@ -1147,13 +1190,24 @@ namespace IndexadorCopidis.Servicios
                 }
             }
 
-            string resultado = NormalizarCodigosCif(string.Join(" ", codigos));
+            string resultado = NormalizarCodigosCif(
+                string.Join(
+                    " ",
+                    codigos
+                        .OrderBy(x => x.Indice)
+                        .ThenBy(x => x.OrdenInterno)
+                        .Select(x => x.Codigo)
+                )
+            );
 
             System.Diagnostics.Debug.Print("[CIF OCR] Texto final preparado: " + resultado);
             System.Diagnostics.Debug.Print("======================================");
 
             return resultado;
         }
+
+
+
         private static bool HaySolapamientoConRangosTomados(
     int indice,
     int longitud,
@@ -1374,6 +1428,20 @@ namespace IndexadorCopidis.Servicios
             if (Regex.IsMatch(cuerpo, @"^\d{1}$"))
                 return false;
 
+            // ==========================================================
+            // REGLA ESPECÍFICA COPIDIS - FACTORES AMBIENTALES
+            // Patrón confirmado como válido:
+            // e2500..3
+            // e2501..+3
+            //
+            // Solo se acepta para letra 'e'.
+            // ==========================================================
+            if (letraEsperada == 'e')
+            {
+                if (Regex.IsMatch(codigo, @"^e\d{2,4}\.\.[+-]?\d{1,2}$"))
+                    return true;
+            }
+
             int maxDigitosBase = ObtenerMaxDigitosBaseCif(letraEsperada);
 
             string patron =
@@ -1454,7 +1522,7 @@ namespace IndexadorCopidis.Servicios
 
             if (!RegexNumeroCertificado.IsMatch(n))
             {
-                r.Mensaje = "Formato inválido. Ejemplo: ARG-02-00010400280-20151118-20201118-CBA-536.";
+                r.Mensaje = "Formato inválido. Ejemplo: ARG-02-00010400280-20151118-20201118-CBA-536 o BOL-02-00010400280-20151118-20201118-CBA-536.";
                 return r;
             }
 
@@ -1567,7 +1635,7 @@ namespace IndexadorCopidis.Servicios
                     : ResultadoValidacion.Ok();
             }
 
-            if (dni.Length < 7 || dni.Length > 8)
+            if (dni.Length < 6 || dni.Length > 8)
                 return ResultadoValidacion.Error("El DNI debe tener 7 u 8 dígitos.");
 
             return ResultadoValidacion.Ok();
@@ -1835,24 +1903,63 @@ namespace IndexadorCopidis.Servicios
 
             return string.Empty;
         }
+        private class CandidatoCifOcr
+        {
+            public string Codigo { get; set; }
+            public int Indice { get; set; }
+            public int OrdenInterno { get; set; }
+        }
+        private static bool AgregarCodigoCifOcrOrdenado(
+    List<CandidatoCifOcr> codigos,
+    string codigo,
+    int indice,
+    ref int ordenInterno)
+        {
+            if (codigos == null)
+                return false;
 
+            codigo = NormalizarCodigosCif(codigo).Trim().ToLowerInvariant();
+
+            if (string.IsNullOrWhiteSpace(codigo))
+                return false;
+
+            bool yaExiste = codigos.Any(x =>
+                string.Equals(x.Codigo, codigo, StringComparison.OrdinalIgnoreCase));
+
+            if (yaExiste)
+                return false;
+
+            if (indice < 0)
+                indice = int.MaxValue;
+
+            codigos.Add(new CandidatoCifOcr
+            {
+                Codigo = codigo,
+                Indice = indice,
+                OrdenInterno = ordenInterno
+            });
+
+            ordenInterno++;
+
+            return true;
+        }
 
         private static bool EsCodigoCifValidoPorLetra(string codigo, char letraEsperada)
         {
             if (string.IsNullOrWhiteSpace(codigo))
                 return false;
 
-            codigo = codigo.ToLowerInvariant().Trim();
+            codigo = NormalizarCodigosCif(codigo).ToLowerInvariant().Trim();
             letraEsperada = char.ToLowerInvariant(letraEsperada);
 
             switch (letraEsperada)
             {
                 case 'b':
                     // Ejemplo: b167.3
-                    return Regex.IsMatch(codigo, @"^b\d{2,4}\.\d{1,4}$");
+                    return Regex.IsMatch(codigo, @"^b\d{2,5}\.\d{1,4}$");
 
                 case 's':
-                    // Ejemplo: s110.888
+                    // Ejemplo: s110.888, s4101.370, s73023.373
                     return Regex.IsMatch(codigo, @"^s\d{2,5}\.\d{1,4}$");
 
                 case 'd':
@@ -1860,8 +1967,11 @@ namespace IndexadorCopidis.Servicios
                     return Regex.IsMatch(codigo, @"^d\d{2,4}\.\d{1,4}$");
 
                 case 'e':
-                    // Ejemplos: e355.+3, e310.+3, e5801.+3, e5801.-3
-                    return Regex.IsMatch(codigo, @"^e\d{2,4}\.[+-]?\d$");
+                    // Factores ambientales.
+                    // Formato habitual: e355.+3, e310.+3, e5801.+3, e5801.-3
+                    // Formato confirmado por COPIDIS: e2500..3, e2501..+3
+                    return Regex.IsMatch(codigo, @"^e\d{2,4}\.[+-]?\d{1,2}$") ||
+                           Regex.IsMatch(codigo, @"^e\d{2,4}\.\.[+-]?\d{1,2}$");
 
                 default:
                     return false;
