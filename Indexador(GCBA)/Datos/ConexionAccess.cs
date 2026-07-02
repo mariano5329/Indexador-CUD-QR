@@ -25,11 +25,11 @@ namespace IndexadorCopidis.Datos
             string cadenaConexion =
                 @"Provider=Microsoft.ACE.OLEDB.12.0;" +
                 @"Data Source=" + rutaBase + ";" +
-                @"Persist Security Info=False;";
+                @"Persist Security Info=False;" +
+                @"Mode=Share Deny None;" +
+                @"OLE DB Services=-2;";
 
-            OleDbConnection conexion1 = new OleDbConnection(cadenaConexion);
-
-            return conexion1;
+            return new OleDbConnection(cadenaConexion);
         }
         public static OleDbConnection ObtenerConexionPreprocesamiento()
         {

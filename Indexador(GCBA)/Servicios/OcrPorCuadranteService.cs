@@ -29,6 +29,11 @@ namespace IndexadorCopidis.Servicios
 
         public string RutaRecorteDebug { get; set; }
         public string RutaRecortePreparadoDebug { get; set; }
+
+
+
+
+
     }
 
     public class OcrPorCuadranteService
@@ -105,13 +110,11 @@ namespace IndexadorCopidis.Servicios
                 resultado.AnchoRecorte = recorte.Width;
                 resultado.AltoRecorte = recorte.Height;
 
-                if (guardarDebug)
-                    resultado.RutaRecorteDebug = GuardarImagenDebug(recorte, "recorte_original");
+               
 
                 using (Bitmap preparada = PrepararImagenParaOcr(recorte))
                 {
-                    if (guardarDebug)
-                        resultado.RutaRecortePreparadoDebug = GuardarImagenDebug(preparada, "recorte_preparado");
+                  
 
                     ResultadoOcrCuadrante intento = EjecutarOcrConFallback(preparada);
 
@@ -204,13 +207,11 @@ namespace IndexadorCopidis.Servicios
                 resultado.AnchoRecorte = recorte.Width;
                 resultado.AltoRecorte = recorte.Height;
 
-                if (guardarDebug)
-                    resultado.RutaRecorteDebug = GuardarImagenDebug(recorte, "recorte_original");
+               
 
                 using (Bitmap preparada = PrepararImagenParaOcr(recorte))
                 {
-                    if (guardarDebug)
-                        resultado.RutaRecortePreparadoDebug = GuardarImagenDebug(preparada, "recorte_preparado");
+                  
 
                     ResultadoOcrCuadrante intento = EjecutarOcrConFallback(preparada);
 
@@ -590,27 +591,6 @@ namespace IndexadorCopidis.Servicios
             return salida;
         }
 
-        private string GuardarImagenDebug(Bitmap imagen, string prefijo)
-        {
-            try
-            {
-                string carpeta = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                    "OCR_Cuadrante_Debug");
 
-                Directory.CreateDirectory(carpeta);
-
-                string nombre = prefijo + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".png";
-                string ruta = Path.Combine(carpeta, nombre);
-
-                imagen.Save(ruta, System.Drawing.Imaging.ImageFormat.Png);
-
-                return ruta;
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
     }
 }

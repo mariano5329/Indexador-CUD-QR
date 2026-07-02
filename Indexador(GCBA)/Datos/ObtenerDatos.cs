@@ -134,24 +134,56 @@ ORDER BY [Id] DESC";
 
         public int ConsultaCudVerificadoPorRutaEntrada(string rutaEntrada)
         {
-            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
-            using (OleDbCommand oCom = oCon.CreateCommand())
+            const int maxIntentos = 5;
+            int esperaMs = 300;
+
+            for (int intento = 1; intento <= maxIntentos; intento++)
             {
                 try
                 {
-                    oCom.CommandText = @"
-SELECT TOP 1 [Id]
+                    using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+                    using (OleDbCommand oCom = oCon.CreateCommand())
+                    {
+                        oCom.CommandText = @"
+SELECT TOP 1 1
 FROM [TD_CUD]
 WHERE [RutaEntrada] = ?
-  AND ([Estado] = 'INDEXADO' OR [Estado] = 'MODIFICADO' OR [Estado] = 'VERIFICADO')";
+  AND [Estado] IN ('INDEXADO', 'MODIFICADO', 'VERIFICADO')";
 
-                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = ValorTexto(rutaEntrada);
+                        OleDbParameter pRuta = oCom.Parameters.Add("?", OleDbType.VarWChar);
+                        pRuta.Value = ValorTexto(rutaEntrada);
+                        pRuta.Size = 500;
 
-                    oCon.Open();
+                        oCom.CommandTimeout = 10;
 
-                    object resultado = oCom.ExecuteScalar();
+                        oCon.Open();
 
-                    return resultado == null || resultado == DBNull.Value ? 0 : 1;
+                        object resultado = oCom.ExecuteScalar();
+
+                        return resultado == null || resultado == DBNull.Value ? 0 : 1;
+                    }
+                }
+                catch (OleDbException ex)
+                {
+                    bool baseEnUso =
+                        ex.Message.IndexOf("archivo ya está en uso", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        ex.Message.IndexOf("file already in use", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        ex.Message.IndexOf("could not use", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    if (!baseEnUso || intento == maxIntentos)
+                    {
+                        LogError("ConsultaCudVerificadoPorRutaEntrada", ex);
+                        throw;
+                    }
+
+                    Debug.WriteLine(
+                        "[BDCertificados][LOCK] Base en uso. Reintento " +
+                        intento + "/" + maxIntentos +
+                        " en " + esperaMs + " ms.");
+
+                    System.Threading.Thread.Sleep(esperaMs);
+
+                    esperaMs += 300;
                 }
                 catch (Exception ex)
                 {
@@ -159,6 +191,8 @@ WHERE [RutaEntrada] = ?
                     throw;
                 }
             }
+
+            return 0;
         }
 
         public int ConsultaCudVerificadoPorArchivoEntrada(string caja, string archivoEntrada)
@@ -308,6 +342,48 @@ ORDER BY [FechaProceso] DESC";
                 catch (Exception ex)
                 {
                     LogError("ObtenerPreprocesamientoPorRutaSalida", ex);
+                    throw;
+                }
+            }
+        }
+
+
+        public int ContarCudIndexadosHoy(string indexador)
+        {
+            if (string.IsNullOrWhiteSpace(indexador))
+                return 0;
+
+            DateTime desde = DateTime.Today;
+            DateTime hasta = desde.AddDays(1);
+
+            using (OleDbConnection oCon = ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT COUNT(*)
+FROM [TD_CUD]
+WHERE Trim([Indexador]) = ?
+  AND UCase(Trim([Estado])) = 'INDEXADO'
+  AND [Fecha Indexado] >= ?
+  AND [Fecha Indexado] < ?";
+
+                    oCom.Parameters.Add("?", OleDbType.VarWChar).Value = indexador.Trim();
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = desde;
+                    oCom.Parameters.Add("?", OleDbType.Date).Value = hasta;
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    return resultado == null || resultado == DBNull.Value
+                        ? 0
+                        : Convert.ToInt32(resultado);
+                }
+                catch (Exception ex)
+                {
+                    LogError("ContarCudIndexadosHoy", ex);
                     throw;
                 }
             }
