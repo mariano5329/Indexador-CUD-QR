@@ -3417,15 +3417,33 @@ namespace IndexadorCopidis
 
                 if (idExistente > 0)
                 {
-                    MessageBox.Show(
-                        "El certificado ya existe en la base de datos." + Environment.NewLine +
-                        "Id existente: " + idExistente + Environment.NewLine +
-                        "No se grabó un duplicado.",
-                        "Duplicado CUD",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                    Debug.WriteLine("==================================================");
+                    Debug.WriteLine("[CUD GUARDAR][DUPLICADO]");
+                    Debug.WriteLine("[CUD GUARDAR] Id existente: " + idExistente);
+                    Debug.WriteLine("[CUD GUARDAR] NumeroCertificado: " + dto.NumeroCertificado);
+                    Debug.WriteLine("[CUD GUARDAR] DNI: " + dto.DNI);
+                    Debug.WriteLine("[CUD GUARDAR] ArchivoEntrada: " + archivoEntrada);
+                    Debug.WriteLine("[CUD GUARDAR] Se mueve el PDF a ILEGIBLES / DUPLICADOS.");
+                    Debug.WriteLine("==================================================");
 
-                    return false;
+                    string carpetaDuplicados = ObtenerCarpetaDuplicadosCudIlegibles(rutaLote, nombreLote);
+
+                    Directory.CreateDirectory(carpetaDuplicados);
+
+                    string rutaDuplicadoBase = Path.Combine(
+                        carpetaDuplicados,
+                        Path.GetFileName(rutaOrigen));
+
+                    string rutaDuplicadoFinal = ObtenerRutaDisponible(rutaDuplicadoBase);
+
+                    File.Move(rutaOrigen, rutaDuplicadoFinal);
+
+                    Debug.WriteLine("[CUD GUARDAR][DUPLICADO] PDF movido a: " + rutaDuplicadoFinal);
+                    Debug.WriteLine("[CUD GUARDAR][DUPLICADO] Se considera resuelto y continúa el flujo.");
+
+                    nombreFinalVerificado = Path.GetFileNameWithoutExtension(rutaDuplicadoFinal);
+
+                    return true;
                 }
 
                 // ==========================================================
@@ -3560,6 +3578,40 @@ namespace IndexadorCopidis
                 return false;
             }
         }
+
+        private string ObtenerCarpetaDuplicadosCudIlegibles(string rutaLote, string nombreLote)
+        {
+            if (string.IsNullOrWhiteSpace(rutaLote))
+                throw new Exception("No se pudo determinar la ruta del lote actual.");
+
+            if (string.IsNullOrWhiteSpace(nombreLote))
+                nombreLote = ObtenerNombreCarpetaLoteActual();
+
+            string marcadorPendientes = Path.DirectorySeparatorChar + "02_PENDIENTES_INDEXAR";
+
+            int posicion = rutaLote.IndexOf(
+                marcadorPendientes,
+                StringComparison.OrdinalIgnoreCase);
+
+            if (posicion < 0)
+            {
+                throw new Exception(
+                    "No se pudo determinar la carpeta raíz COPIDIS desde la ruta del lote:" +
+                    Environment.NewLine +
+                    rutaLote);
+            }
+
+            string raizCopidis = rutaLote.Substring(0, posicion);
+
+            string carpetaDuplicados = Path.Combine(
+                raizCopidis,
+                "04_ILEGIBLES",
+                "_DUPLICADOS_CUD",
+                nombreLote);
+
+            return carpetaDuplicados;
+        }
+
 
         private void CargarDatosCudEditado(string rutaSalida)
         {
