@@ -1182,19 +1182,24 @@ namespace IndexadorCopidis
             btnSepararIlegible.Enabled = false;
         }
 
-        private async void btnSeleccionarLote_Click(object sender, EventArgs e)
+        private async void btnSeleccionarLote_Click(
+        object sender,
+        EventArgs e)
         {
             btnSeleccionarLote.Enabled = false;
 
             string loteSeleccionado = null;
-            string indexadorActual = ObtenerNombreIndexadorActual();
+            string indexadorActual =
+                ObtenerNombreIndexadorActual();
 
             if (string.IsNullOrWhiteSpace(indexadorActual))
             {
                 btnSeleccionarLote.Enabled = true;
 
                 MessageBox.Show(
-                    "No se pudo determinar el usuario/indexador actual. Verifique que el usuario esté seleccionado o cargado antes de tomar un lote.",
+                    "No se pudo determinar el usuario/indexador actual. " +
+                    "Verifique que el usuario esté seleccionado o cargado " +
+                    "antes de tomar un lote.",
                     "Indexador CUD",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
@@ -1202,70 +1207,110 @@ namespace IndexadorCopidis
                 return;
             }
 
-            Debug.WriteLine("[LOTE] Indexador actual detectado: " + indexadorActual);
+            Debug.WriteLine(
+                "[LOTE] Indexador actual: " +
+                indexadorActual);
 
             try
             {
                 await Task.Run(() =>
                 {
+                    ObtenerDatos datos = new ObtenerDatos();
+
+                    // ==================================================
+                    // 1. REVISAR SOLAMENTE EL ÚLTIMO LOTE DEL USUARIO
+                    // ==================================================
+                    string ultimoLoteUsuario =
+                        datos.ConsultarUltimoLoteUsuario(
+                            indexadorActual);
+
+                    if (LoteTieneDocumentosPendientes(
+                            ultimoLoteUsuario))
+                    {
+                        Debug.WriteLine(
+                            "[LOTE] Se retoma el último lote activo: " +
+                            ultimoLoteUsuario);
+
+                        loteSeleccionado =
+                            ultimoLoteUsuario;
+
+                        return;
+                    }
+
+                    Debug.WriteLine(
+                        "[LOTE] El usuario no tiene un último lote activo.");
+
+                    // ==================================================
+                    // 2. BUSCAR SOLAMENTE UN LOTE LIBRE
+                    // ==================================================
                     if (!Directory.Exists(rutaCudProcesadas))
                         return;
 
-                    DirectoryInfo di1 = new DirectoryInfo(rutaCudProcesadas);
+                    DirectoryInfo carpetaPrincipal =
+                        new DirectoryInfo(rutaCudProcesadas);
 
-                    foreach (DirectoryInfo carpeta in di1.GetDirectories())
+                    foreach (DirectoryInfo carpetaGrupo
+                             in carpetaPrincipal.GetDirectories())
                     {
-                        string grupo = carpeta.Name;
+                        string grupo = carpetaGrupo.Name;
 
                         if (string.IsNullOrWhiteSpace(grupo))
                             continue;
 
-                        DirectoryInfo diGrupo = new DirectoryInfo(Path.Combine(rutaCudProcesadas, grupo));
-
-                        foreach (DirectoryInfo loteDir in diGrupo.GetDirectories())
+                        foreach (DirectoryInfo loteDir
+                                 in carpetaGrupo.GetDirectories())
                         {
-                            string lote = loteDir.Name;
+                            string rutaLote =
+                                loteDir.FullName;
 
-                            if (string.IsNullOrWhiteSpace(lote))
-                                continue;
+                            string usuarioAsignado =
+                                datos.Consultaloteasignado(
+                                    rutaLote);
 
-                            string loteAsignado = loteasignado(lote, grupo, indexadorActual);
-
-                            if (string.IsNullOrWhiteSpace(loteAsignado))
-                                continue;
-
-                            string rutaLote = Path.Combine(rutaCudProcesadas, grupo, loteAsignado);
-
-                            string usuarioAsignado = new ObtenerDatos().Consultaloteasignado(rutaLote);
-
-                            if (string.IsNullOrWhiteSpace(usuarioAsignado))
+                            /*
+                             * Si tiene cualquier asignación anterior,
+                             * no se selecciona.
+                             *
+                             * Tampoco se retoman aquí lotes antiguos
+                             * del mismo usuario.
+                             */
+                            if (!string.IsNullOrWhiteSpace(
+                                    usuarioAsignado))
                             {
-                                Debug.WriteLine("[LOTE] Asignando lote: " + rutaLote);
-                                Debug.WriteLine("[LOTE] Usuario a guardar: " + indexadorActual);
-
-                                new ProduccionAccess().loteasignado(rutaLote, indexadorActual);
-                            }
-                            else
-                            {
-                                Debug.WriteLine("[LOTE] Lote ya asignado a: " + usuarioAsignado);
+                                continue;
                             }
 
-                            loteSeleccionado = rutaLote;
-                            break;
+                            Debug.WriteLine(
+                                "[LOTE] Asignando nuevo lote: " +
+                                rutaLote);
+
+                            Debug.WriteLine(
+                                "[LOTE] Usuario: " +
+                                indexadorActual);
+
+                            new ProduccionAccess()
+                                .loteasignado(
+                                    rutaLote,
+                                    indexadorActual);
+
+                            loteSeleccionado =
+                                rutaLote;
+
+                            return;
                         }
-
-                        if (!string.IsNullOrWhiteSpace(loteSeleccionado))
-                            break;
                     }
                 });
 
                 if (!string.IsNullOrWhiteSpace(loteSeleccionado))
                 {
-                    txtRutaLote.Text = loteSeleccionado;
+                    txtRutaLote.Text =
+                        loteSeleccionado;
 
-                    await InicializarContadorCudHoyAsync(indexadorActual);
+                    await InicializarContadorCudHoyAsync(
+                        indexadorActual);
 
-                    CargarDocumentosEnSegundoPlano(loteSeleccionado);
+                    CargarDocumentosEnSegundoPlano(
+                        loteSeleccionado);
                 }
                 else
                 {
@@ -1283,10 +1328,38 @@ namespace IndexadorCopidis
                 btnSeleccionarLote.Enabled = true;
 
                 MessageBox.Show(
-                    "Error al seleccionar lote CUD: " + ex.Message,
+                    "Error al seleccionar lote CUD: " +
+                    ex.Message,
                     "Error",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
+            }
+        }
+
+        private bool LoteTieneDocumentosPendientes(string rutaLote)
+        {
+            if (string.IsNullOrWhiteSpace(rutaLote))
+                return false;
+
+            if (!Directory.Exists(rutaLote))
+                return false;
+
+            try
+            {
+                return Directory
+                    .EnumerateFiles(
+                        rutaLote,
+                        "*.pdf",
+                        SearchOption.TopDirectoryOnly)
+                    .Any();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    "[LOTE][ERROR] No se pudo revisar el lote: " +
+                    ex.Message);
+
+                return false;
             }
         }
 

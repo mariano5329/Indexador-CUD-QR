@@ -226,10 +226,47 @@ WHERE [Caja] = ?
             }
         }
 
-        // ==========================================================
-        // LOTES
-        // Este método reemplaza el anterior, pero parametrizado.
-        // ==========================================================
+        public string ConsultarUltimoLoteUsuario(string usuario)
+        {
+            if (string.IsNullOrWhiteSpace(usuario))
+                return string.Empty;
+
+            using (OleDbConnection oCon =
+                   ConexionAccess.ObtenerConexion1())
+            using (OleDbCommand oCom = oCon.CreateCommand())
+            {
+                try
+                {
+                    oCom.CommandText = @"
+SELECT TOP 1 [DSRUTALOTE]
+FROM [TD_LOTE]
+WHERE [DSUSUARIO] = ?
+ORDER BY [Id] DESC";
+
+                    oCom.Parameters
+                        .Add("?", OleDbType.VarWChar)
+                        .Value = ValorTexto(usuario.Trim());
+
+                    oCon.Open();
+
+                    object resultado = oCom.ExecuteScalar();
+
+                    return resultado == null ||
+                           resultado == DBNull.Value
+                        ? string.Empty
+                        : resultado.ToString().Trim();
+                }
+                catch (Exception ex)
+                {
+                    LogError(
+                        "ConsultarUltimoLoteUsuario",
+                        ex);
+
+                    throw;
+                }
+            }
+        }
+
 
         public string Consultaloteasignado(string pruta)
         {
