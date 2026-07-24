@@ -1542,7 +1542,7 @@ namespace IndexadorCopidis.Servicios
 
             string dni = dni11.TrimStart('0');
 
-            if (dni.Length < 6 || dni.Length > 8)
+            if (dni.Length < 5 || dni.Length > 8)
             {
                 r.Mensaje = "El DNI incluido en el número de certificado no tiene longitud válida.";
                 return r;
@@ -1635,7 +1635,7 @@ namespace IndexadorCopidis.Servicios
                     : ResultadoValidacion.Ok();
             }
 
-            if (dni.Length < 6 || dni.Length > 8)
+            if (dni.Length < 5 || dni.Length > 8)
                 return ResultadoValidacion.Error("El DNI debe tener 7 u 8 dígitos.");
 
             return ResultadoValidacion.Ok();
@@ -1812,9 +1812,18 @@ namespace IndexadorCopidis.Servicios
             if (letraEsperada == 'b')
                 return 5;
 
-            // Actividad/participación y factores ambientales:
+            // Actividad y participación:
             // d240.23
+            // También existen códigos con una base de 5 dígitos.
+            if (letraEsperada == 'd')
+                return 5;
+
+            // Factores ambientales:
             // e5801.+3
+            if (letraEsperada == 'e')
+                return 4;
+
+            // Valor conservador para letras no contempladas.
             return 4;
         }
 
