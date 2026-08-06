@@ -503,15 +503,17 @@ namespace IndexadorCopidis.Servicios
                 idxRehabVisual
             );
 
-            int idxRehab = BuscarIndiceMinimo(t, "REHABILIT");
+            int idxPrestacionesRehab = BuscarIndiceMinimo(
+                t,
+                "PRESTACIONES DE REHABILITACION",
+                "PRESTACION DE REHABILITACION"
+            );
 
             AgregarOrientacionSi(
                 encontrados,
                 "PRESTACIONES DE REHABILITACION",
-                idxRehab >= 0 &&
-                idxRehabVisual < 0 &&
-                !ContieneTodosOrientacion(t, "CENTRO", "REHABILITACION", "DISCAPACIDAD", "VISUAL"),
-                idxRehab
+                idxPrestacionesRehab >= 0,
+                idxPrestacionesRehab
             );
 
             int idxAsistencia = BuscarIndiceMinimo(t, "ASISTENCIA", "DOMICILIARIA", "DOMICIL");
