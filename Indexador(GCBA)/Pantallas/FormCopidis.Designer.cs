@@ -29,14 +29,15 @@
         private void InitializeComponent()
         {
             System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FormCopidis));
-            this.btnSepararIlegible = new System.Windows.Forms.Button();
-            this.btnGrabar = new System.Windows.Forms.Button();
+            this.btnSepararQR = new System.Windows.Forms.Button();
             this.btnSalir = new System.Windows.Forms.Button();
             this.TxtFechaEmision = new System.Windows.Forms.TextBox();
             this.label15 = new System.Windows.Forms.Label();
             this.panel1 = new System.Windows.Forms.Panel();
             this.panel5 = new System.Windows.Forms.Panel();
             this.tableLayoutPanel5 = new System.Windows.Forms.TableLayoutPanel();
+            this.btnSepararIlegible = new System.Windows.Forms.Button();
+            this.btnGrabar = new System.Windows.Forms.Button();
             this.groupBox7 = new System.Windows.Forms.GroupBox();
             this.tableLayoutPanel4 = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanel17 = new System.Windows.Forms.TableLayoutPanel();
@@ -142,30 +143,17 @@
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).BeginInit();
             this.SuspendLayout();
             // 
-            // btnSepararIlegible
+            // btnSepararQR
             // 
-            this.btnSepararIlegible.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnSepararIlegible.Location = new System.Drawing.Point(4, 4);
-            this.btnSepararIlegible.Margin = new System.Windows.Forms.Padding(4);
-            this.btnSepararIlegible.Name = "btnSepararIlegible";
-            this.btnSepararIlegible.Size = new System.Drawing.Size(372, 28);
-            this.btnSepararIlegible.TabIndex = 20;
-            this.btnSepararIlegible.Text = "&Separar Ilegible";
-            this.btnSepararIlegible.UseVisualStyleBackColor = true;
-            this.btnSepararIlegible.Click += new System.EventHandler(this.btnSepararIlegible_Click);
-            // 
-            // btnGrabar
-            // 
-            this.btnGrabar.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.btnGrabar.Location = new System.Drawing.Point(384, 4);
-            this.btnGrabar.Margin = new System.Windows.Forms.Padding(4);
-            this.btnGrabar.Name = "btnGrabar";
-            this.btnGrabar.Size = new System.Drawing.Size(373, 28);
-            this.btnGrabar.TabIndex = 18;
-            this.btnGrabar.Text = "&Grabar y Continuar";
-            this.btnGrabar.UseVisualStyleBackColor = true;
-            this.btnGrabar.Click += new System.EventHandler(this.btnGrabar_Click);
-            this.btnGrabar.KeyDown += new System.Windows.Forms.KeyEventHandler(this.btnGrabar_KeyDown);
+            this.btnSepararQR.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnSepararQR.Location = new System.Drawing.Point(4, 4);
+            this.btnSepararQR.Margin = new System.Windows.Forms.Padding(4);
+            this.btnSepararQR.Name = "btnSepararQR";
+            this.btnSepararQR.Size = new System.Drawing.Size(256, 28);
+            this.btnSepararQR.TabIndex = 20;
+            this.btnSepararQR.Text = "&Separar QR";
+            this.btnSepararQR.UseVisualStyleBackColor = true;
+            this.btnSepararQR.Click += new System.EventHandler(this.btnSepararQR_Click);
             // 
             // btnSalir
             // 
@@ -231,11 +219,13 @@
             // 
             // tableLayoutPanel5
             // 
-            this.tableLayoutPanel5.ColumnCount = 2;
+            this.tableLayoutPanel5.ColumnCount = 3;
             this.tableLayoutPanel5.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel5.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 50F));
-            this.tableLayoutPanel5.Controls.Add(this.btnSepararIlegible, 0, 0);
-            this.tableLayoutPanel5.Controls.Add(this.btnGrabar, 1, 0);
+            this.tableLayoutPanel5.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 233F));
+            this.tableLayoutPanel5.Controls.Add(this.btnSepararIlegible, 1, 0);
+            this.tableLayoutPanel5.Controls.Add(this.btnGrabar, 2, 0);
+            this.tableLayoutPanel5.Controls.Add(this.btnSepararQR, 0, 0);
             this.tableLayoutPanel5.Dock = System.Windows.Forms.DockStyle.Top;
             this.tableLayoutPanel5.Location = new System.Drawing.Point(0, 768);
             this.tableLayoutPanel5.Margin = new System.Windows.Forms.Padding(4);
@@ -244,6 +234,30 @@
             this.tableLayoutPanel5.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 50F));
             this.tableLayoutPanel5.Size = new System.Drawing.Size(761, 36);
             this.tableLayoutPanel5.TabIndex = 43;
+            // 
+            // btnSepararIlegible
+            // 
+            this.btnSepararIlegible.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnSepararIlegible.Location = new System.Drawing.Point(268, 4);
+            this.btnSepararIlegible.Margin = new System.Windows.Forms.Padding(4);
+            this.btnSepararIlegible.Name = "btnSepararIlegible";
+            this.btnSepararIlegible.Size = new System.Drawing.Size(256, 28);
+            this.btnSepararIlegible.TabIndex = 24;
+            this.btnSepararIlegible.Text = "&Separar Ilegible";
+            this.btnSepararIlegible.UseVisualStyleBackColor = true;
+            this.btnSepararIlegible.Click += new System.EventHandler(this.btnSepararIlegible_Click_1);
+            // 
+            // btnGrabar
+            // 
+            this.btnGrabar.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.btnGrabar.Location = new System.Drawing.Point(532, 4);
+            this.btnGrabar.Margin = new System.Windows.Forms.Padding(4);
+            this.btnGrabar.Name = "btnGrabar";
+            this.btnGrabar.Size = new System.Drawing.Size(225, 28);
+            this.btnGrabar.TabIndex = 23;
+            this.btnGrabar.Text = "&Grabar y Continuar";
+            this.btnGrabar.UseVisualStyleBackColor = true;
+            this.btnGrabar.Click += new System.EventHandler(this.btnGrabar_Click_1);
             // 
             // groupBox7
             // 
@@ -1334,9 +1348,8 @@
         }
 
         #endregion
-        private System.Windows.Forms.Button btnGrabar;
         private System.Windows.Forms.Button btnSalir;
-        private System.Windows.Forms.Button btnSepararIlegible;
+        private System.Windows.Forms.Button btnSepararQR;
         private System.Windows.Forms.Label label15;
         private System.Windows.Forms.TextBox TxtFechaEmision;
         private System.Windows.Forms.Panel panel1;
@@ -1419,5 +1432,7 @@
         private System.Windows.Forms.ComboBox CmbReso;
         private System.Windows.Forms.Label lblCudHoy;
         private System.Windows.Forms.Label lblCudHoyR;
+        private System.Windows.Forms.Button btnSepararIlegible;
+        private System.Windows.Forms.Button btnGrabar;
     }
 }

@@ -36,6 +36,10 @@ namespace IndexadorCopidis
         private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
         private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
         private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
+
+        private readonly string rutaCudSepararQr = @"J:\COPIDIS\SepararQR\";
+
+
         private int _idCudEditando = 0;
 
         // ==========================================================
@@ -1174,12 +1178,14 @@ namespace IndexadorCopidis
         {
             btnGrabar.Enabled = true;
             btnSepararIlegible.Enabled = true;
+            btnSepararQR.Enabled = true;
         }
 
         private void DesHabilarBotones()
         {
             btnGrabar.Enabled = false;
             btnSepararIlegible.Enabled = false;
+            btnSepararQR.Enabled = false;
         }
 
         private async void btnSeleccionarLote_Click(
@@ -1779,85 +1785,10 @@ namespace IndexadorCopidis
 
         private void btnGrabar_Click(object sender, EventArgs e)
         {
-            if (!ValidarFormularioCudCompleto())
-                return;
-
-            CertificadoCudDto dto = ObtenerDtoCudDesdePantalla();
-
-            GrabarCud(dto);
+         
         }
 
-        private void btnSepararIlegible_Click(object sender, EventArgs e)
-        {
-            if (lboxIndice.SelectedIndex == -1)
-            {
-                MessageBox.Show(
-                    "Debe seleccionar un certificado antes de marcarlo como ILEGIBLE.",
-                    "Indexador CUD",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
-
-                return;
-            }
-
-            int numeroLineaActual = lboxIndice.SelectedIndex;
-            int numeroLineaSiguiente = numeroLineaActual + 1;
-
-            string lineaActual = lboxIndice.SelectedItem.ToString();
-            string nombreOriginal = ObtenerNombreOriginalDesdeLineaIndice(lineaActual);
-
-            if (string.IsNullOrWhiteSpace(nombreOriginal))
-            {
-                MessageBox.Show(
-                    "No se pudo determinar el nombre original del certificado.",
-                    "Indexador CUD",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-
-                return;
-            }
-
-            string rutaLote = txtRutaLote.Text;
-            string rutaOrigenPdf = Path.Combine(rutaLote, nombreOriginal + ".pdf");
-
-            if (!File.Exists(rutaOrigenPdf))
-            {
-                MessageBox.Show(
-                    "No se encontró el PDF de origen:" + Environment.NewLine + rutaOrigenPdf,
-                    "Indexador CUD",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-
-                return;
-            }
-
-            try
-            {
-                string carpetaIlegibles = ObtenerCarpetaIlegiblesCaja();
-                Directory.CreateDirectory(carpetaIlegibles);
-
-                string destinoBase = Path.Combine(carpetaIlegibles, nombreOriginal + ".pdf");
-                string destinoFinal = ObtenerRutaDisponible(destinoBase);
-
-                Debug.WriteLine("[CUD ILEGIBLE] Origen: " + rutaOrigenPdf);
-                Debug.WriteLine("[CUD ILEGIBLE] Destino: " + destinoFinal);
-
-                File.Copy(rutaOrigenPdf, destinoFinal, false);
-                EliminarArchivoOrigenConReintentos(rutaOrigenPdf);
-
-                lboxIndice.Items[numeroLineaActual] = nombreOriginal + ";ILEGIBLE";
-
-                PasarAlSiguiente(numeroLineaActual, numeroLineaSiguiente, nombreOriginal);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    "Error al procesar el certificado ilegible: " + ex.Message,
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-            }
-        }
+     
 
         private void button1_Click(object sender, EventArgs e)
         {
@@ -7599,6 +7530,208 @@ namespace IndexadorCopidis
         private void button9_Click_1(object sender, EventArgs e)
         {
 
+        }
+
+        private void btnSepararIlegible_Click_1(object sender, EventArgs e)
+        {
+            if (lboxIndice.SelectedIndex == -1)
+            {
+                MessageBox.Show(
+                    "Debe seleccionar un certificado antes de marcarlo como ILEGIBLE.",
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                return;
+            }
+
+            int numeroLineaActual = lboxIndice.SelectedIndex;
+            int numeroLineaSiguiente = numeroLineaActual + 1;
+
+            string lineaActual = lboxIndice.SelectedItem.ToString();
+            string nombreOriginal = ObtenerNombreOriginalDesdeLineaIndice(lineaActual);
+
+            if (string.IsNullOrWhiteSpace(nombreOriginal))
+            {
+                MessageBox.Show(
+                    "No se pudo determinar el nombre original del certificado.",
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            string rutaLote = txtRutaLote.Text;
+            string rutaOrigenPdf = Path.Combine(rutaLote, nombreOriginal + ".pdf");
+
+            if (!File.Exists(rutaOrigenPdf))
+            {
+                MessageBox.Show(
+                    "No se encontró el PDF de origen:" + Environment.NewLine + rutaOrigenPdf,
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            try
+            {
+                string carpetaIlegibles = ObtenerCarpetaIlegiblesCaja();
+                Directory.CreateDirectory(carpetaIlegibles);
+
+                string destinoBase = Path.Combine(carpetaIlegibles, nombreOriginal + ".pdf");
+                string destinoFinal = ObtenerRutaDisponible(destinoBase);
+
+                Debug.WriteLine("[CUD ILEGIBLE] Origen: " + rutaOrigenPdf);
+                Debug.WriteLine("[CUD ILEGIBLE] Destino: " + destinoFinal);
+
+                File.Copy(rutaOrigenPdf, destinoFinal, false);
+                EliminarArchivoOrigenConReintentos(rutaOrigenPdf);
+
+                lboxIndice.Items[numeroLineaActual] = nombreOriginal + ";ILEGIBLE";
+
+                PasarAlSiguiente(numeroLineaActual, numeroLineaSiguiente, nombreOriginal);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error al procesar el certificado ilegible: " + ex.Message,
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        private void btnGrabar_Click_1(object sender, EventArgs e)
+        {
+            if (!ValidarFormularioCudCompleto())
+                return;
+
+            CertificadoCudDto dto = ObtenerDtoCudDesdePantalla();
+
+            GrabarCud(dto);
+        }
+
+
+
+
+        private string ObtenerCarpetaSepararQrCaja()
+        {
+            string caja = ObtenerNombreCarpetaLoteActual();
+            return Path.Combine(rutaCudSepararQr, caja);
+        }
+
+
+        private void btnSepararQR_Click(object sender, EventArgs e)
+        {
+            if (lboxIndice.SelectedIndex == -1)
+            {
+                MessageBox.Show(
+                    "Debe seleccionar un certificado antes de separarlo como CUD QR.",
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                return;
+            }
+
+            int numeroLineaActual = lboxIndice.SelectedIndex;
+            int numeroLineaSiguiente = numeroLineaActual + 1;
+
+            string lineaActual = lboxIndice.SelectedItem.ToString();
+            string nombreOriginal = ObtenerNombreOriginalDesdeLineaIndice(lineaActual);
+
+            if (string.IsNullOrWhiteSpace(nombreOriginal))
+            {
+                MessageBox.Show(
+                    "No se pudo determinar el nombre original del certificado.",
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            string rutaLote = txtRutaLote.Text;
+            string rutaOrigenPdf = Path.Combine(
+                rutaLote,
+                nombreOriginal + ".pdf");
+
+            if (!File.Exists(rutaOrigenPdf))
+            {
+                MessageBox.Show(
+                    "No se encontró el PDF de origen:" +
+                    Environment.NewLine +
+                    rutaOrigenPdf,
+                    "Indexador CUD",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            try
+            {
+                // ==========================================================
+                // DESTINO: SepararQR\<CAJA>
+                // ==========================================================
+                string carpetaQr = ObtenerCarpetaSepararQrCaja();
+
+                Directory.CreateDirectory(carpetaQr);
+
+                string destinoBase = Path.Combine(
+                    carpetaQr,
+                    nombreOriginal + ".pdf");
+
+                string destinoFinal = ObtenerRutaDisponible(destinoBase);
+
+                Debug.WriteLine("==============================================");
+                Debug.WriteLine("[CUD SEPARAR QR]");
+                Debug.WriteLine("[CUD SEPARAR QR] Origen: " + rutaOrigenPdf);
+                Debug.WriteLine("[CUD SEPARAR QR] Destino: " + destinoFinal);
+                Debug.WriteLine("==============================================");
+
+                // ==========================================================
+                // COPIAR Y ELIMINAR ORIGINAL
+                //
+                // Mantengo el mismo criterio utilizado por ILEGIBLES.
+                // ==========================================================
+                File.Copy(
+                    rutaOrigenPdf,
+                    destinoFinal,
+                    false);
+
+                EliminarArchivoOrigenConReintentos(rutaOrigenPdf);
+
+                // ==========================================================
+                // MARCAR VISUALMENTE EL ELEMENTO COMO RESUELTO
+                // ==========================================================
+                lboxIndice.Items[numeroLineaActual] =
+                    nombreOriginal + ";SEPARAR_QR";
+
+                // ==========================================================
+                // CONTINUAR CON EL SIGUIENTE PDF
+                // ==========================================================
+                PasarAlSiguiente(
+                    numeroLineaActual,
+                    numeroLineaSiguiente,
+                    nombreOriginal);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[CUD SEPARAR QR][ERROR]");
+                Debug.WriteLine(ex.ToString());
+
+                MessageBox.Show(
+                    "Error al separar el certificado QR:" +
+                    Environment.NewLine +
+                    ex.Message,
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
         }
     }
 }
