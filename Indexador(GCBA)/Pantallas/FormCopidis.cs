@@ -1423,6 +1423,14 @@ namespace IndexadorCopidis
             if (string.IsNullOrWhiteSpace(rutaPdfActual))
                 return;
 
+            // En pruebas OCR manual no es obligatorio tener una base
+            // de preprocesamiento. Nunca consultar la original de J:\.
+            if (!File.Exists(ConexionAccess.RutaBDPreprocesamientoPruebas))
+            {
+                Debug.WriteLine("[PREINDEX][PRUEBAS] Sin base local: se omite precarga.");
+                return;
+            }
+
             try
             {
                 _cargandoDesdePreprocesamiento = true;
