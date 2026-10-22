@@ -1,26 +1,82 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.Data.OleDb;
-using System.Data.SqlClient;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace IndexadorCopidis.Datos
 {
     class ConexionAccess
     {
+        // ==========================================================
+        // MODO PRUEBAS - CUD QR
+        // Las rutas J:\COPIDIS\... quedan comentadas debajo.
+        // NO utiliza las bases Access originales para grabar.
+        // ==========================================================
+        internal static readonly string RutaBasePruebas = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "Indexador-CUD-QR-PRUEBAS");
+
+        internal static readonly string RutaBDCertificadosPruebas =
+            Path.Combine(RutaBasePruebas, "00_BD", "BDCertificados.accdb");
+
+        internal static readonly string RutaBDPreprocesamientoPruebas =
+            Path.Combine(RutaBasePruebas, "00_BD", "BDPreprocesamiento.accdb");
+
+        internal static void PrepararCarpetasPrueba()
+        {
+            Directory.CreateDirectory(RutaBasePruebas);
+            Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "00_BD"));
+            // El indexador espera GRUPO/LOTE/archivos.pdf.
+            // Colocar las carpetas de lote dentro de "PRUEBA".
+            Directory.CreateDirectory(Path.Combine(
+                RutaBasePruebas, "02_PENDIENTES_INDEXAR", "PRUEBA"));
+            Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "03_CERTIFICADOS_VERIFICADOS"));
+            Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "04_ILEGIBLES"));
+            Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "SepararQR"));
+        }
+
+        internal static bool EsRutaDeEntradaPrueba(string ruta)
+        {
+            if (string.IsNullOrWhiteSpace(ruta))
+                return false;
+
+            try
+            {
+                string carpetaEntrada = Path.GetFullPath(
+                    Path.Combine(RutaBasePruebas, "02_PENDIENTES_INDEXAR"))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                    + Path.DirectorySeparatorChar;
+
+                string rutaNormalizada = Path.GetFullPath(ruta);
+
+                // La ruta debe estar DENTRO del directorio de entradas,
+                // no en la misma carpeta ni en una ruta de producción.
+                return rutaNormalizada.StartsWith(
+                    carpetaEntrada,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         public static OleDbConnection ObtenerConexion1()
         {
             // ==========================================================
-            // BASE ÚNICA INDEXADOR CUD - COPIDIS
+            // BASE INDEXADOR CUD
             // ==========================================================
-            string rutaBase = @"J:\COPIDIS\00_BD\BDCertificados.accdb";
+
+            // ORIGINAL - PRODUCCIÓN (restaurar al terminar las pruebas):
+            // string rutaBase = @"J:\COPIDIS\00_BD\BDCertificados.accdb";
+
+            // ACTIVA - PRUEBAS EN EL ESCRITORIO:
+            string rutaBase = RutaBDCertificadosPruebas;
 
             if (!File.Exists(rutaBase))
-                throw new FileNotFoundException("No se encontró la base de datos Access.", rutaBase);
+                throw new FileNotFoundException(
+                    "Falta la base de datos de PRUEBAS. Copie una base Access de prueba con las tablas del indexador a: " + rutaBase +
+                    ". No se utilizará automáticamente la base de producción.",
+                    rutaBase);
 
             string cadenaConexion =
                 @"Provider=Microsoft.ACE.OLEDB.12.0;" +
@@ -31,28 +87,30 @@ namespace IndexadorCopidis.Datos
 
             return new OleDbConnection(cadenaConexion);
         }
+
         public static OleDbConnection ObtenerConexionPreprocesamiento()
         {
             // ==========================================================
-            // BASE PREPROCESAMIENTO CUD - COPIDIS
-            // Se usa solo para leer los datos OCR previos generados
-            // por el preprocesador.
+            // BASE PREPROCESAMIENTO (opcional para OCR manual)
             // ==========================================================
-            string rutaBase = @"J:\COPIDIS\00_BD\BDPreprocesamiento.accdb";
+
+            // ORIGINAL - PRODUCCIÓN (restaurar al terminar las pruebas):
+            // string rutaBase = @"J:\COPIDIS\00_BD\BDPreprocesamiento.accdb";
+
+            // ACTIVA - PRUEBAS EN EL ESCRITORIO:
+            string rutaBase = RutaBDPreprocesamientoPruebas;
 
             if (!File.Exists(rutaBase))
-                throw new FileNotFoundException("No se encontró la base de datos de preprocesamiento.", rutaBase);
+                throw new FileNotFoundException(
+                    "No hay base de preprocesamiento local de pruebas. La precarga OCR se omitirá.",
+                    rutaBase);
 
             string cadenaConexion =
                 @"Provider=Microsoft.ACE.OLEDB.12.0;" +
                 @"Data Source=" + rutaBase + ";" +
                 @"Persist Security Info=False;";
 
-            OleDbConnection conexion = new OleDbConnection(cadenaConexion);
-
-            return conexion;
+            return new OleDbConnection(cadenaConexion);
         }
-
-
     }
 }
