@@ -4686,7 +4686,7 @@ namespace IndexadorCopidis
             _zonasSugeridasOcrCud[TxtCertBloque7] = zonaNumeroCertificado;
 
             _zonasSugeridasOcrCud[TxtApellidoNombre] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.24f, 0.132f, 0.49f, 0.032f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.24f, 0.135f, 0.49f, 0.027f);
             _zonasSugeridasOcrCud[CmbSexo] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumDNI] =
@@ -6200,6 +6200,99 @@ namespace IndexadorCopidis
 
 
 
+        // ==========================================================
+        // CUD QR - EXTRAER APELLIDO Y NOMBRE DE LA FILA DE IDENTIDAD
+        // ==========================================================
+        private string ExtraerApellidoNombreDesdeOcr(string textoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            // No perder los saltos de línea antes de seleccionar el dato útil.
+            string texto = textoOcr.Replace("\r\n", "\n").Replace('\r', '\n');
+
+            // Rótulos del certificado y de la siguiente fila.
+            const string rotuloNombre =
+                @"\bAPELLID[O0]\s+Y\s+NOMBR(?:E|ES)\b\s*[:;\-]?";
+
+            const string inicioSiguienteCampo =
+                @"\b(?:TIPO\s+Y|CUIT\s*/\s*CUIL|F\s*[./]?\s*NAC(?:IMIENTO)?|" +
+                @"CONDICI[OÓ0]N\s+DE\s+SALUD|PERFIL\s+DE\s+FUNCIONAMIENTO)\b";
+
+            // Si el OCR devolvió rótulo y valor en una misma línea, tomar
+            // el valor posterior al rótulo; en otros casos, evaluar cada línea.
+            string[] lineas = texto.Split(
+                new[] { '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            bool seEncontroRotulo = false;
+
+            foreach (string original in lineas)
+            {
+                string linea = original.Trim();
+
+                if (linea.Length == 0)
+                    continue;
+
+                Match rotulo = Regex.Match(
+                    linea, rotuloNombre, RegexOptions.IgnoreCase);
+
+                if (rotulo.Success)
+                {
+                    seEncontroRotulo = true;
+                    linea = linea.Substring(rotulo.Index + rotulo.Length);
+                }
+
+                // Si la selección tomó accidentalmente la fila del DNI,
+                // cortar antes de su título, no incorporar datos ajenos.
+                Match siguiente = Regex.Match(
+                    linea, inicioSiguienteCampo, RegexOptions.IgnoreCase);
+
+                if (siguiente.Success)
+                    linea = linea.Substring(0, siguiente.Index);
+
+                linea = LimpiarRuidoTextoLibreOcr(linea);
+
+                // Puede quedar un fragmento del rótulo porque el rectángulo
+                // comience justo después de "NOMBR": por ejemplo "ES: ROSSI...".
+                linea = Regex.Replace(
+                    linea,
+                    @"^(?:NOMBR(?:E|ES)|APELLIDO|ES)\s*[:;\-]\s*",
+                    "",
+                    RegexOptions.IgnoreCase);
+
+                linea = Regex.Replace(
+                    linea, @"^[^\p{L}]+|[^\p{L}]+$", " ").Trim();
+
+                if (string.IsNullOrWhiteSpace(linea))
+                    continue;
+
+                // No inventar un nombre a partir de códigos o textos ajenos.
+                if (Regex.IsMatch(linea, @"\d"))
+                    continue;
+
+                if (Regex.Matches(linea, @"\p{L}+").Count < 2)
+                    continue;
+
+                string candidato = IndexadorCudService.NormalizarNombreApellido(linea);
+
+                // Mantener esta validación: más de 120 indica recorte
+                // incorrecto o lectura de otros campos; nunca truncar.
+                if (candidato.Length > 120)
+                    continue;
+
+                ResultadoValidacion validacion =
+                    IndexadorCudService.ValidarApellidoNombrePreprocesamiento(candidato);
+
+                if (validacion.EsValido)
+                    return candidato;
+            }
+
+            // Sin coincidencia inequívoca: solicitar ajustar recorte, en vez
+            // de completar el nombre con texto institucional accidental.
+            return string.Empty;
+        }
+
         private ResultadoAplicacionOcr PrepararOcrTextoLibre(
      string textoOcr,
      string nombreCampo,
@@ -6207,6 +6300,27 @@ namespace IndexadorCopidis
      int minimoCaracteres)
         {
             string crudo = textoOcr ?? string.Empty;
+
+            // En CUD QR el OCR puede arrastrar "APELLIDO Y NOMBRES" o incluso
+            // campos vecinos. Extraer el valor ANTES de normalizar las líneas.
+            // No se amplía ni trunca silenciosamente el límite de 120 caracteres.
+            if (nombreCampo == "Apellido y nombre")
+            {
+                string nombreExtraido = ExtraerApellidoNombreDesdeOcr(crudo);
+
+                Debug.WriteLine("[OCR NOMBRE] Longitud cruda: " + crudo.Length);
+                Debug.WriteLine("[OCR NOMBRE] Longitud extraída: " + nombreExtraido.Length);
+
+                if (string.IsNullOrWhiteSpace(nombreExtraido))
+                {
+                    return ResultadoAplicacionOcr.Rechazar(
+                        "No se pudo aislar el apellido y nombre. El OCR podría estar leyendo " +
+                        "el rótulo u otros campos. Ajuste el recuadro sobre la línea del nombre.",
+                        crudo);
+                }
+
+                crudo = nombreExtraido;
+            }
 
             Debug.WriteLine("==================================================");
             Debug.WriteLine("[OCR TEXTO LIBRE] Campo: " + nombreCampo);
