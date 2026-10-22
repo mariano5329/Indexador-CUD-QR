@@ -240,6 +240,71 @@ namespace IndexadorCopidis.Servicios
             }
         }
 
+        /// <summary>
+        /// Ejecuta OCR sobre un rectángulo expresado en píxeles de la imagen
+        /// entregada. No vuelve a inferir qué región ocupa la imagen en el
+        /// PictureBox. Esto garantiza que el ROI de OCR corresponda a la
+        /// selección calculada previamente sobre la imagen visible.
+        /// </summary>
+        public ResultadoOcrCuadrante LeerTextoDesdeRectanguloImagenDetalle(
+            Image imagen,
+            Rectangle rectanguloImagen,
+            Rectangle rectanguloVista)
+        {
+            ResultadoOcrCuadrante resultado =
+                CrearResultadoInicial(rectanguloVista);
+
+            try
+            {
+                if (imagen == null || imagen.Width <= 0 || imagen.Height <= 0)
+                {
+                    resultado.MensajeTecnico = "Imagen OCR nula o inválida.";
+                    return resultado;
+                }
+
+                Rectangle limites = new Rectangle(
+                    0, 0, imagen.Width, imagen.Height);
+
+                Rectangle roi = Rectangle.Intersect(rectanguloImagen, limites);
+                resultado.RectanguloImagen = roi;
+
+                if (roi.Width <= 0 || roi.Height <= 0)
+                {
+                    resultado.MensajeTecnico =
+                        "El rectángulo OCR no intersecta la imagen de alta definición.";
+                    return resultado;
+                }
+
+                using (Bitmap recorte = RecortarImagen(imagen, roi))
+                {
+                    resultado.AnchoRecorte = recorte.Width;
+                    resultado.AltoRecorte = recorte.Height;
+
+                    using (Bitmap preparada = PrepararImagenParaOcr(recorte))
+                    {
+                        ResultadoOcrCuadrante intento =
+                            EjecutarOcrConFallback(preparada);
+
+                        resultado.Texto = intento.Texto ?? string.Empty;
+                        resultado.ConfianzaPromedio = intento.ConfianzaPromedio;
+                        resultado.MensajeTecnico = intento.MensajeTecnico ?? string.Empty;
+
+                        return resultado;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                CapturarErrorOcr(
+                    resultado,
+                    ex,
+                    "LeerTextoDesdeRectanguloImagenDetalle",
+                    rectanguloVista);
+
+                return resultado;
+            }
+        }
+
         private ResultadoOcrCuadrante CrearResultadoInicial(
             Rectangle rectanguloSeleccionVista)
         {
