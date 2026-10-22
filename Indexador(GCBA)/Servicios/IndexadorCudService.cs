@@ -93,7 +93,7 @@ namespace IndexadorCopidis.Servicios
     public static class IndexadorCudService
     {
         private static readonly Regex RegexNumeroCertificado = new Regex(
-            @"^[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}$",
+            @"^[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3,5}$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
 
@@ -1524,7 +1524,7 @@ namespace IndexadorCopidis.Servicios
 
             if (!RegexNumeroCertificado.IsMatch(n))
             {
-                r.Mensaje = "Formato inválido. Ejemplo: ARG-02-00010400280-20151118-20201118-CBA-536 o BOL-02-00010400280-20151118-20201118-CBA-536.";
+                r.Mensaje = "Formato inválido. Ejemplos: ARG-01-00002799139-20240826-20340826-CIU-13650 (QR) o ARG-02-00010400280-20151118-20201118-CBA-536 (tradicional).";
                 return r;
             }
 
