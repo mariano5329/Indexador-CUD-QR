@@ -117,7 +117,7 @@ namespace IndexadorCopidis
         private bool _configurandoBloquesCertificado = false;
         private PerfilResolucion _perfilActual = PerfilResolucion.Escala145;
         private const float PORCENTAJE_MARGEN_SUPERIOR_CERTIFICADO = 0.03f;
-        private const float PORCENTAJE_ALTO_UTIL_CERTIFICADO = 0.62f;
+        private const float PORCENTAJE_ALTO_UTIL_CERTIFICADO = 0.67f; // Incluye fecha de emisión del CUD QR.
 
         // Recorte lateral del certificado.
         // 0.04f = recorta 4% a la izquierda y 4% a la derecha.
@@ -2746,7 +2746,7 @@ namespace IndexadorCopidis
 
             valido &= ValidarYMarcar(
                 TxtDiagnostico,
-                IndexadorCudService.ValidarObligatorio(TxtDiagnostico.Text, "Diagnóstico"),
+                IndexadorCudService.ValidarObligatorio(TxtDiagnostico.Text, "Condición de salud"),
                 ref primerError);
 
             // ==========================================================
@@ -3838,8 +3838,8 @@ namespace IndexadorCopidis
             TxtCertBloque3.Clear();
             TxtCertBloque4.Clear();
             TxtCertBloque5.Clear();
-            TxtCertBloque6.Text = "CBA";
-            TxtCertBloque7.Text = "536";
+            TxtCertBloque6.Text = "CIU";
+            TxtCertBloque7.Text = "13650";
 
             TxtApellidoNombre.Clear();
             TxtNumDNI.Clear();
@@ -4615,15 +4615,13 @@ namespace IndexadorCopidis
         {
             _zonasSugeridasOcrCud.Clear();
 
-            // Coordenadas originales del certificado completo:
-            // X, Y, Ancho, Alto sobre el PDF entero.
-            // En versión 2 se convierten automáticamente al área superior visible.
-            // Si cambiás PORCENTAJE_ALTO_UTIL_CERTIFICADO, las zonas se recalculan solas.
-
-            RectangleF zonaNumeroCertificado = CrearZonaOcrDesdeCertificadoCompleto(0.49f, 0.052f, 0.46f, 0.038f);
+            // CUD con QR (modelo 2024): coordenadas del PDF COMPLETO.
+            // Se convierten al recorte visible automáticamente.
+            // El operador puede mover o redibujar cada recuadro.
+            RectangleF zonaNumeroCertificado =
+                CrearZonaOcrDesdeCertificadoCompleto(0.33f, 0.088f, 0.40f, 0.030f);
 
             _zonasSugeridasOcrCud[TxtNumeCert] = zonaNumeroCertificado;
-
             _zonasSugeridasOcrCud[TxtCertBloque1] = zonaNumeroCertificado;
             _zonasSugeridasOcrCud[TxtCertBloque2] = zonaNumeroCertificado;
             _zonasSugeridasOcrCud[TxtCertBloque3] = zonaNumeroCertificado;
@@ -4633,46 +4631,39 @@ namespace IndexadorCopidis
             _zonasSugeridasOcrCud[TxtCertBloque7] = zonaNumeroCertificado;
 
             _zonasSugeridasOcrCud[TxtApellidoNombre] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.27f, 0.11f, 0.30f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.132f, 0.47f, 0.032f);
             _zonasSugeridasOcrCud[CmbSexo] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumDNI] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.19f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumCuil] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.52f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.48f, 0.164f, 0.13f, 0.035f);
             _zonasSugeridasOcrCud[TxtFechaNac] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.82f, 0.12f, 0.13f, 0.038f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.58f, 0.164f, 0.18f, 0.035f);
 
+            // La condición de salud se imprime debajo del rótulo, no en la misma línea.
             _zonasSugeridasOcrCud[TxtDiagnostico] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.22f, 0.16f, 0.46f, 0.045f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.250f, 0.79f, 0.041f);
 
+            // Los cuatro grupos CIF ahora se encuentran bajo "PERFIL DE FUNCIONAMIENTO".
             _zonasSugeridasOcrCud[TxtFuncionesCorporales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.24f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.308f, 0.72f, 0.041f);
             _zonasSugeridasOcrCud[TxtEstructurasCorporales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.28f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.361f, 0.72f, 0.035f);
             _zonasSugeridasOcrCud[TxtActividad_Particip] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.08f, 0.32f, 0.84f, 0.042f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.405f, 0.73f, 0.043f);
             _zonasSugeridasOcrCud[TxtFactoresAmbientales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.36f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.449f, 0.73f, 0.040f);
             _zonasSugeridasOcrCud[TxtOrientacion] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.095f, 0.42f, 0.84f, 0.050f);
-
-            _zonasSugeridasOcrCud[TxtFechaVencimiento] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.465f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.10f, 0.500f, 0.78f, 0.052f);
             _zonasSugeridasOcrCud[CmbAcomapante] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.16f, 0.495f, 0.19f, 0.035f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.18f, 0.556f, 0.16f, 0.032f);
             _zonasSugeridasOcrCud[TxtFechaEmision] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.695f, 0.55f, 0.25f, 0.040f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.68f, 0.589f, 0.20f, 0.039f);
+
+            // Sin cuadrante para fecha de vencimiento: "FECHA DE ACTUALIZACIÓN"
+            // suele indicar MM/AAAA, y NO reemplaza el vencimiento completo.
+            // Emisión y vencimiento se triangulan desde el número de certificado.
         }
 
         private void ControlCarga_GotFocusOcr(object sender, EventArgs e)
@@ -5502,7 +5493,7 @@ namespace IndexadorCopidis
 
             Match m = Regex.Match(
                 t,
-                @"[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}",
+                @"[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3,5}",
                 RegexOptions.IgnoreCase);
 
             if (!m.Success)
@@ -5856,6 +5847,9 @@ namespace IndexadorCopidis
                     " ",
                     RegexOptions.IgnoreCase);
 
+                // CUD QR: eliminar "CONDICIÓN DE SALUD" aun si viene en una línea separada.
+                linea = Regex.Replace(linea, @"\bCONDICI[OÓ0]N\s+DE\s+SALUD\b\s*[:\-]?", " ", RegexOptions.IgnoreCase);
+
                 // ==========================================================
                 // 3) LIMPIEZA DE SEPARADORES
                 // ==========================================================
@@ -5910,6 +5904,7 @@ namespace IndexadorCopidis
             resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
 
             // Limpieza final de rótulos por si quedaron después de unir líneas.
+            resultado = Regex.Replace(resultado, @"\bCONDICI[OÓ0]N\s+DE\s+SALUD\b\s*[:\-]?", " ", RegexOptions.IgnoreCase);
             resultado = Regex.Replace(
                 resultado,
                 @"\bD\s*I\s*A?\s*G\s*N\s*[OÓ0]\s*S\s*T\s*I\s*C\s*[O0]\b\s*[:\-]?",
@@ -6887,8 +6882,8 @@ namespace IndexadorCopidis
             {
                 // Valores por defecto
                 TxtCertBloque1.Text = "ARG";
-                TxtCertBloque6.Text = "CBA";
-                TxtCertBloque7.Text = "536";
+                TxtCertBloque6.Text = "CIU";
+                TxtCertBloque7.Text = "13650";
 
                 // Largo máximo por bloque
                 TxtCertBloque1.MaxLength = 3;   // ARG
@@ -6896,8 +6891,8 @@ namespace IndexadorCopidis
                 TxtCertBloque3.MaxLength = 11;  // DNI interno con ceros
                 TxtCertBloque4.MaxLength = 8;   // Fecha emisión yyyyMMdd
                 TxtCertBloque5.MaxLength = 8;   // Fecha vencimiento yyyyMMdd
-                TxtCertBloque6.MaxLength = 3;   // CBA
-                TxtCertBloque7.MaxLength = 3;   // 536
+                TxtCertBloque6.MaxLength = 3;   // CIU / CBA
+                TxtCertBloque7.MaxLength = 5;   // 13650 (QR), 536 (tradicional)
 
                 // Mayúsculas
                 TxtCertBloque1.CharacterCasing = CharacterCasing.Upper;
@@ -6960,8 +6955,8 @@ namespace IndexadorCopidis
                 _toolTipCud.SetToolTip(TxtCertBloque3, "DNI interno. Puede cargar el DNI sin ceros; al salir se completa a 11 dígitos.");
                 _toolTipCud.SetToolTip(TxtCertBloque4, "Fecha de emisión en formato AAAAMMDD.");
                 _toolTipCud.SetToolTip(TxtCertBloque5, "Fecha de vencimiento en formato AAAAMMDD.");
-                _toolTipCud.SetToolTip(TxtCertBloque6, "Jurisdicción. Normalmente CBA.");
-                _toolTipCud.SetToolTip(TxtCertBloque7, "Código final. Normalmente 536.");
+                _toolTipCud.SetToolTip(TxtCertBloque6, "Jurisdicción del CUD QR: CIU (en certificados anteriores puede ser CBA).");
+                _toolTipCud.SetToolTip(TxtCertBloque7, "Código final del CUD QR: 13650 (en certificados anteriores puede ser 536).");
             }
             finally
             {
@@ -7117,7 +7112,7 @@ namespace IndexadorCopidis
                     string final = Regex.Replace(txt.Text, @"\D", "");
 
                     if (string.IsNullOrWhiteSpace(final))
-                        final = "536";
+                        final = "13650";
 
                     txt.Text = final;
                 }
@@ -7141,10 +7136,10 @@ namespace IndexadorCopidis
                 b1 = "ARG";
 
             if (string.IsNullOrWhiteSpace(b6))
-                b6 = "CBA";
+                b6 = "CIU";
 
             if (string.IsNullOrWhiteSpace(b7))
-                b7 = "536";
+                b7 = "13650";
 
             if (!string.IsNullOrWhiteSpace(b3) && b3.Length <= 11)
                 b3 = b3.PadLeft(11, '0');
