@@ -32,6 +32,30 @@ namespace IndexadorCopidis.Datos
             Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "03_CERTIFICADOS_VERIFICADOS"));
             Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "04_ILEGIBLES"));
             Directory.CreateDirectory(Path.Combine(RutaBasePruebas, "SepararQR"));
+
+            // Guía local: no se sobrescribe si el usuario la modificó.
+            string guia = Path.Combine(RutaBasePruebas, "LEEME_PRUEBAS.txt");
+
+            if (!File.Exists(guia))
+            {
+                File.WriteAllText(
+                    guia,
+                    "INDEXADOR CUD QR - MODO PRUEBAS" + Environment.NewLine +
+                    Environment.NewLine +
+                    "1) Poner carpetas de lote con PDF en:" + Environment.NewLine +
+                    Path.Combine(RutaBasePruebas, "02_PENDIENTES_INDEXAR", "PRUEBA") + Environment.NewLine +
+                    "   Ejemplo: PRUEBA\\116D1\\2957258.pdf" + Environment.NewLine +
+                    Environment.NewLine +
+                    "2) Colocar una base BDCertificados.accdb de prueba (con tablas e indexadores) en:" +
+                    Environment.NewLine + Path.Combine(RutaBasePruebas, "00_BD") + Environment.NewLine +
+                    "   No se utiliza automaticamente la base original de produccion." + Environment.NewLine +
+                    "   La base BDPreprocesamiento.accdb es opcional en OCR manual." + Environment.NewLine +
+                    Environment.NewLine +
+                    "3) Los PDF indexados se guardan en 03_CERTIFICADOS_VERIFICADOS." + Environment.NewLine +
+                    "   Los descartados se guardan en 04_ILEGIBLES o SepararQR." + Environment.NewLine +
+                    "   Al procesar un PDF, el original de la carpeta de prueba se elimina." +
+                    Environment.NewLine);
+            }
         }
 
         internal static bool EsRutaDeEntradaPrueba(string ruta)
