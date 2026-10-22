@@ -1278,6 +1278,10 @@ namespace IndexadorCopidis
                             string rutaLote =
                                 loteDir.FullName;
 
+                            // No seleccionar carpetas de lote vacías durante las pruebas.
+                            if (!LoteTieneDocumentosPendientes(rutaLote))
+                                continue;
+
                             string usuarioAsignado =
                                 datos.Consultaloteasignado(
                                     rutaLote);
@@ -1353,7 +1357,9 @@ namespace IndexadorCopidis
 
         private bool LoteTieneDocumentosPendientes(string rutaLote)
         {
-            if (string.IsNullOrWhiteSpace(rutaLote))
+            // Una base de datos de prueba copiada puede contener lotes antiguos en J:\.
+            // Nunca reanudar ni operar sobre esas rutas de producción.
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
                 return false;
 
             if (!Directory.Exists(rutaLote))
@@ -1847,6 +1853,13 @@ namespace IndexadorCopidis
 
             string origen = txtRutaLote.Text;
 
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(origen))
+            {
+                MessageBox.Show("Modo pruebas: no se permite mover un lote fuera de la carpeta local de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(origen) || !Directory.Exists(origen))
             {
                 MessageBox.Show(
@@ -1931,6 +1944,17 @@ namespace IndexadorCopidis
 
         private async void CargarDocumentosEnSegundoPlano(string rutaLote)
         {
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show(
+                    "Modo pruebas: el lote debe encontrarse dentro de la carpeta local del Escritorio.",
+                    "Indexador CUD QR - PRUEBAS",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                btnSeleccionarLote.Enabled = true;
+                return;
+            }
+
             if (!Directory.Exists(rutaLote))
             {
                 MessageBox.Show(
@@ -3393,6 +3417,15 @@ namespace IndexadorCopidis
             nombreFinalVerificado = string.Empty;
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show(
+                    "Modo pruebas: no se puede grabar un lote ubicado fuera del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
             string nombreLote = ObtenerNombreCarpetaLoteActual();
 
             string archivoEntrada = nombreOriginalSinExtension + ".pdf";
@@ -4286,6 +4319,11 @@ namespace IndexadorCopidis
 
         private void EliminarArchivoOrigenConReintentos(string rutaOrigen)
         {
+            // Defensa adicional: nunca eliminar PDFs del circuito de producción.
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaOrigen))
+                throw new InvalidOperationException(
+                    "Modo pruebas: se bloqueó la eliminación de un PDF fuera del Escritorio de pruebas.");
+
             if (!File.Exists(rutaOrigen))
                 return;
 
@@ -7567,6 +7605,14 @@ namespace IndexadorCopidis
             }
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show("Modo pruebas: solo se pueden separar PDFs dentro del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             string rutaOrigenPdf = Path.Combine(rutaLote, nombreOriginal + ".pdf");
 
             if (!File.Exists(rutaOrigenPdf))
@@ -7659,6 +7705,14 @@ namespace IndexadorCopidis
             }
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show("Modo pruebas: solo se pueden separar PDFs dentro del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             string rutaOrigenPdf = Path.Combine(
                 rutaLote,
                 nombreOriginal + ".pdf");
