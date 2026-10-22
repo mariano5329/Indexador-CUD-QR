@@ -272,49 +272,68 @@ namespace IndexadorCopidis
 
         private Bitmap RenderizarPdfActualAltaDefinicionParaOcr()
         {
-            if (string.IsNullOrWhiteSpace(RutaNombreImagen))
+            if (string.IsNullOrWhiteSpace(RutaNombreImagen) ||
+                !File.Exists(RutaNombreImagen) ||
+                pictureBox1.Image == null)
             {
-                Debug.WriteLine("[OCR HD] RutaNombreImagen vacía. No se puede renderizar PDF HD.");
-                return null;
-            }
-
-            if (!File.Exists(RutaNombreImagen))
-            {
-                Debug.WriteLine("[OCR HD] No existe el PDF actual: " + RutaNombreImagen);
-                return null;
-            }
-
-            if (pictureBox1.Image == null)
-            {
-                Debug.WriteLine("[OCR HD] pictureBox1.Image es null. No hay referencia visual.");
+                Debug.WriteLine("[OCR HD] PDF o imagen visual no disponible.");
                 return null;
             }
 
             try
             {
-                int anchoBase = pictureBox1.Image.Width;
-                int altoBase = pictureBox1.Image.Height;
+                // La imagen del PictureBox YA ESTÁ RECORTADA. Sus dimensiones
+                // NO pueden utilizarse como tamaño de la página PDF completa:
+                // hacerlo cambia la relación de aspecto y mueve los ROI OCR.
+                float fraccionAnchoVisible =
+                    1.0f - PORCENTAJE_MARGEN_IZQUIERDO_CERTIFICADO -
+                    PORCENTAJE_MARGEN_DERECHO_CERTIFICADO;
 
-                if (anchoBase <= 0 || altoBase <= 0)
+                float fraccionAltoVisible =
+                    ObtenerPorcentajeAltoUtilCertificado() -
+                    PORCENTAJE_MARGEN_SUPERIOR_CERTIFICADO;
+
+                if (fraccionAnchoVisible <= 0 || fraccionAltoVisible <= 0)
                     return null;
-
-                int anchoRender = anchoBase * FACTOR_RENDER_OCR_CUADRANTE;
-                int altoRender = altoBase * FACTOR_RENDER_OCR_CUADRANTE;
-
-                int ladoMayor = Math.Max(anchoRender, altoRender);
-
-                if (ladoMayor > MAX_LADO_RENDER_OCR_CUADRANTE)
-                {
-                    float escala = (float)MAX_LADO_RENDER_OCR_CUADRANTE / ladoMayor;
-
-                    anchoRender = Math.Max(1, (int)(anchoRender * escala));
-                    altoRender = Math.Max(1, (int)(altoRender * escala));
-                }
 
                 using (PdfDocument pdfDocument = PdfDocument.Load(RutaNombreImagen))
                 {
                     if (pdfDocument.PageCount <= 0)
                         return null;
+
+                    SizeF tamanioPagina = pdfDocument.PageSizes[0];
+
+                    if (tamanioPagina.Width <= 0 || tamanioPagina.Height <= 0)
+                        return null;
+
+                    // Restituimos el ancho de la hoja completa y conservamos
+                    // la relación de aspecto REAL que tiene el PDF.
+                    double relacionPagina =
+                        (double)tamanioPagina.Width / tamanioPagina.Height;
+
+                    double anchoCompletoVisual =
+                        pictureBox1.Image.Width / (double)fraccionAnchoVisible;
+
+                    int anchoRender = Math.Max(
+                        1,
+                        (int)Math.Round(
+                            anchoCompletoVisual * FACTOR_RENDER_OCR_CUADRANTE));
+
+                    int altoRender = Math.Max(
+                        1,
+                        (int)Math.Round(anchoRender / relacionPagina));
+
+                    AjustarTamanioMaximo(
+                        ref anchoRender,
+                        ref altoRender,
+                        MAX_LADO_RENDER_OCR_CUADRANTE);
+
+                    Debug.WriteLine("[OCR HD] Tamaño imagen visual recortada: " +
+                        pictureBox1.Image.Width + "x" + pictureBox1.Image.Height);
+                    Debug.WriteLine("[OCR HD] Relación PDF completo: " +
+                        relacionPagina.ToString("0.0000", CultureInfo.InvariantCulture));
+                    Debug.WriteLine("[OCR HD] Render PDF completo: " +
+                        anchoRender + "x" + altoRender);
 
                     using (Image render = pdfDocument.Render(
                         0,
@@ -326,14 +345,19 @@ namespace IndexadorCopidis
                     {
                         using (Bitmap completo = new Bitmap(render))
                         {
-                            return RecortarAreaUtilCertificado(completo);
+                            Bitmap recorte = RecortarAreaUtilCertificado(completo);
+
+                            Debug.WriteLine("[OCR HD] Imagen OCR recortada: " +
+                                recorte.Width + "x" + recorte.Height);
+
+                            return recorte;
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[OCR HD][ERROR] No se pudo renderizar PDF en alta definición.");
+                Debug.WriteLine("[OCR HD][ERROR] No se pudo renderizar PDF HD.");
                 Debug.WriteLine(ex.ToString());
                 return null;
             }
