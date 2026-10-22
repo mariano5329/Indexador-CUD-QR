@@ -6219,13 +6219,18 @@ namespace IndexadorCopidis
                 @"\b(?:TIPO\s+Y|CUIT\s*/\s*CUIL|F\s*[./]?\s*NAC(?:IMIENTO)?|" +
                 @"CONDICI[OÓ0]N\s+DE\s+SALUD|PERFIL\s+DE\s+FUNCIONAMIENTO)\b";
 
-            // Si el OCR devolvió rótulo y valor en una misma línea, tomar
-            // el valor posterior al rótulo; en otros casos, evaluar cada línea.
+            // Si hay rótulo en el texto, descartar TODO lo anterior.
+            // Esto evita aceptar una cabecera institucional como nombre.
+            Match rotuloInicial = Regex.Match(
+                texto, rotuloNombre, RegexOptions.IgnoreCase);
+
+            if (rotuloInicial.Success)
+                texto = texto.Substring(rotuloInicial.Index + rotuloInicial.Length);
+
+            // En el CUD QR el valor puede venir junto al rótulo o debajo.
             string[] lineas = texto.Split(
                 new[] { '\n' },
                 StringSplitOptions.RemoveEmptyEntries);
-
-            bool seEncontroRotulo = false;
 
             foreach (string original in lineas)
             {
@@ -6233,15 +6238,6 @@ namespace IndexadorCopidis
 
                 if (linea.Length == 0)
                     continue;
-
-                Match rotulo = Regex.Match(
-                    linea, rotuloNombre, RegexOptions.IgnoreCase);
-
-                if (rotulo.Success)
-                {
-                    seEncontroRotulo = true;
-                    linea = linea.Substring(rotulo.Index + rotulo.Length);
-                }
 
                 // Si la selección tomó accidentalmente la fila del DNI,
                 // cortar antes de su título, no incorporar datos ajenos.
