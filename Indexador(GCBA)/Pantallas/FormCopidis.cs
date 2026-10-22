@@ -4698,13 +4698,13 @@ namespace IndexadorCopidis
 
             // La condición de salud se imprime debajo del rótulo, no en la misma línea.
             _zonasSugeridasOcrCud[TxtDiagnostico] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.256f, 0.79f, 0.037f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.248f, 0.79f, 0.037f);
 
             // Los cuatro grupos CIF ahora se encuentran bajo "PERFIL DE FUNCIONAMIENTO".
             _zonasSugeridasOcrCud[TxtFuncionesCorporales] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.308f, 0.72f, 0.041f);
             _zonasSugeridasOcrCud[TxtEstructurasCorporales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.361f, 0.72f, 0.035f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.353f, 0.72f, 0.035f);
             _zonasSugeridasOcrCud[TxtActividad_Particip] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.405f, 0.73f, 0.043f);
             _zonasSugeridasOcrCud[TxtFactoresAmbientales] =
