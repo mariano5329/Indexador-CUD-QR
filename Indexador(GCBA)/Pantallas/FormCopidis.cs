@@ -4870,6 +4870,41 @@ namespace IndexadorCopidis
             return interseccion;
         }
 
+        /// <summary>
+        /// Transforma un ROI expresado en píxeles de la imagen visual recortada
+        /// a los píxeles de otra representación de ESA MISMA área (OCR HD).
+        /// </summary>
+        private static Rectangle EscalarRectanguloEntreImagenes(
+            Rectangle origen,
+            Size tamanioOrigen,
+            Size tamanioDestino)
+        {
+            if (origen.Width <= 0 || origen.Height <= 0 ||
+                tamanioOrigen.Width <= 0 || tamanioOrigen.Height <= 0 ||
+                tamanioDestino.Width <= 0 || tamanioDestino.Height <= 0)
+            {
+                return Rectangle.Empty;
+            }
+
+            double factorX = (double)tamanioDestino.Width / tamanioOrigen.Width;
+            double factorY = (double)tamanioDestino.Height / tamanioOrigen.Height;
+
+            int izquierda = (int)Math.Round(origen.Left * factorX);
+            int arriba = (int)Math.Round(origen.Top * factorY);
+            int derecha = (int)Math.Round(origen.Right * factorX);
+            int abajo = (int)Math.Round(origen.Bottom * factorY);
+
+            izquierda = Math.Max(0, Math.Min(tamanioDestino.Width, izquierda));
+            derecha = Math.Max(0, Math.Min(tamanioDestino.Width, derecha));
+            arriba = Math.Max(0, Math.Min(tamanioDestino.Height, arriba));
+            abajo = Math.Max(0, Math.Min(tamanioDestino.Height, abajo));
+
+            if (derecha <= izquierda || abajo <= arriba)
+                return Rectangle.Empty;
+
+            return Rectangle.FromLTRB(izquierda, arriba, derecha, abajo);
+        }
+
         private Rectangle ConvertirRectanguloVistaAImagenParaZoom(Rectangle rectanguloVista)
         {
             Rectangle areaImagen = ObtenerRectanguloImagenVisibleEnPictureBox();
@@ -5234,8 +5269,26 @@ namespace IndexadorCopidis
         Debug.WriteLine("[OCR CUADRANTE] Rectángulo vista: " + _rectanguloSeleccionVistaOcr);
 
                 Rectangle rectanguloVistaOcr = _rectanguloSeleccionVistaOcr;
-                Size tamanioPictureBox = pictureBox1.ClientSize;
-                PictureBoxSizeMode sizeMode = pictureBox1.SizeMode;
+
+                // La transformación empieza SIEMPRE en la imagen visible:
+                // esta es la que el operador usa para dibujar el recuadro.
+                Rectangle rectanguloImagenVisual =
+                    ConvertirRectanguloVistaAImagenParaZoom(rectanguloVistaOcr);
+
+                Size tamanioImagenVisual = pictureBox1.Image == null
+                    ? Size.Empty
+                    : pictureBox1.Image.Size;
+
+                if (rectanguloImagenVisual == Rectangle.Empty ||
+                    tamanioImagenVisual.Width <= 0 ||
+                    tamanioImagenVisual.Height <= 0)
+                {
+                    InformarEstadoOcr("El recuadro no coincide con la imagen visible.");
+                    _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+                    pictureBox1.Invalidate();
+                    destino.Focus();
+                    return;
+                }
 
                 Bitmap imagenParaOcr = ObtenerImagenOcrHdDesdeCache();
 
@@ -5256,18 +5309,38 @@ namespace IndexadorCopidis
                     return;
                 }
 
+                // Escalamos el mismo rectángulo visual a los píxeles de
+                // la imagen HD. NO volvemos a ejecutar Zoom con otra imagen.
+                Rectangle rectanguloImagenOcr = EscalarRectanguloEntreImagenes(
+                    rectanguloImagenVisual,
+                    tamanioImagenVisual,
+                    imagenParaOcr.Size);
+
+                Debug.WriteLine("[OCR MAPEO] Selección en PictureBox: " + rectanguloVistaOcr);
+                Debug.WriteLine("[OCR MAPEO] Imagen visible: " + tamanioImagenVisual);
+                Debug.WriteLine("[OCR MAPEO] ROI en imagen visible: " + rectanguloImagenVisual);
+                Debug.WriteLine("[OCR MAPEO] Imagen HD: " + imagenParaOcr.Size);
+                Debug.WriteLine("[OCR MAPEO] ROI definitivo HD: " + rectanguloImagenOcr);
+
                 ResultadoOcrCuadrante resultado;
 
                 using (imagenParaOcr)
                 {
+                    if (rectanguloImagenOcr == Rectangle.Empty)
+                    {
+                        InformarEstadoOcr("No se pudo traducir el recuadro a la imagen OCR.");
+                        _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+                        pictureBox1.Invalidate();
+                        destino.Focus();
+                        return;
+                    }
+
                     resultado = await Task.Run(() =>
                     {
-                        return _ocrPorCuadranteService.LeerTextoDesdeSeleccionDetalle(
+                        return _ocrPorCuadranteService.LeerTextoDesdeRectanguloImagenDetalle(
                             imagenParaOcr,
-                            tamanioPictureBox,
-                            sizeMode,
-                            rectanguloVistaOcr,
-                            guardarDebug: true);
+                            rectanguloImagenOcr,
+                            rectanguloVistaOcr);
                     });
                 }
 
