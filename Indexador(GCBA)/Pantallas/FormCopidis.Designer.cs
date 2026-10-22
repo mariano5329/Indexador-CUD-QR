@@ -403,7 +403,7 @@
             this.groupBox6.Size = new System.Drawing.Size(761, 445);
             this.groupBox6.TabIndex = 3;
             this.groupBox6.TabStop = false;
-            this.groupBox6.Text = "Diagnostico";
+            this.groupBox6.Text = "Condición de salud y perfil de funcionamiento";
             // 
             // tableLayoutPanel3
             // 
@@ -664,7 +664,7 @@
             this.label10.Name = "label10";
             this.label10.Size = new System.Drawing.Size(162, 102);
             this.label10.TabIndex = 261;
-            this.label10.Text = "Diagnostico";
+            this.label10.Text = "Condición de salud";
             this.label10.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
             // 
             // tableLayoutPanel6
@@ -1296,7 +1296,7 @@
             this.Margin = new System.Windows.Forms.Padding(4);
             this.Name = "FormCopidis";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "Certificado de Discapacidad (V 7)";
+            this.Text = "Indexador de Certificados de Discapacidad - QR";
             this.Load += new System.EventHandler(this.FormActasDeNacimiento_Load);
             this.Shown += new System.EventHandler(this.FormCopidis_Shown_1);
             this.Resize += new System.EventHandler(this.FormActasDeNacimiento_Resize);
