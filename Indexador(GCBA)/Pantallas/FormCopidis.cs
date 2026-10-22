@@ -30,14 +30,22 @@ namespace IndexadorCopidis
         private int editar = 0;
 
         // ==========================================================
-        // RUTAS CUD
-        // Ajustalas a tus carpetas reales cuando definas ambiente final.
+        // RUTAS CUD - MODO PRUEBAS QR
+        // Se crean en el Escritorio al iniciar la aplicación.
+        // Para volver a producción, restaurar TAMBIÉN ConexionAccess.
         // ==========================================================
-        private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
-        private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
-        private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
 
-        private readonly string rutaCudSepararQr = @"J:\COPIDIS\SepararQR\";
+        // ORIGINALES - PRODUCCIÓN (DESACTIVADAS):
+        // private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
+        // private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
+        // private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
+        // private readonly string rutaCudSepararQr = @"J:\COPIDIS\SepararQR\";
+
+        // ACTIVAS - PRUEBAS EN EL ESCRITORIO:
+        private readonly string rutaCudProcesadas = Path.Combine(ConexionAccess.RutaBasePruebas, "02_PENDIENTES_INDEXAR");
+        private readonly string rutaCudVerificada = Path.Combine(ConexionAccess.RutaBasePruebas, "03_CERTIFICADOS_VERIFICADOS");
+        private readonly string rutaCudIlegibles = Path.Combine(ConexionAccess.RutaBasePruebas, "04_ILEGIBLES");
+        private readonly string rutaCudSepararQr = Path.Combine(ConexionAccess.RutaBasePruebas, "SepararQR");
 
 
         private int _idCudEditando = 0;
@@ -509,6 +517,7 @@ namespace IndexadorCopidis
         public FormCopidis(Entidades.Indexador pIndexador)
         {
             InitializeComponent();
+            Text = "Indexador CUD QR - PRUEBAS (Escritorio)";
 
     
 
