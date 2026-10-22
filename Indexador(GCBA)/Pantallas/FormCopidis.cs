@@ -30,14 +30,22 @@ namespace IndexadorCopidis
         private int editar = 0;
 
         // ==========================================================
-        // RUTAS CUD
-        // Ajustalas a tus carpetas reales cuando definas ambiente final.
+        // RUTAS CUD - MODO PRUEBAS QR
+        // Se crean en el Escritorio al iniciar la aplicación.
+        // Para volver a producción, restaurar TAMBIÉN ConexionAccess.
         // ==========================================================
-        private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
-        private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
-        private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
 
-        private readonly string rutaCudSepararQr = @"J:\COPIDIS\SepararQR\";
+        // ORIGINALES - PRODUCCIÓN (DESACTIVADAS):
+        // private readonly string rutaCudProcesadas = @"J:\COPIDIS\02_PENDIENTES_INDEXAR\";
+        // private readonly string rutaCudVerificada = @"J:\COPIDIS\03_CERTIFICADOS_VERIFICADOS\";
+        // private readonly string rutaCudIlegibles = @"J:\COPIDIS\04_ILEGIBLES\";
+        // private readonly string rutaCudSepararQr = @"J:\COPIDIS\SepararQR\";
+
+        // ACTIVAS - PRUEBAS EN EL ESCRITORIO:
+        private readonly string rutaCudProcesadas = Path.Combine(ConexionAccess.RutaBasePruebas, "02_PENDIENTES_INDEXAR");
+        private readonly string rutaCudVerificada = Path.Combine(ConexionAccess.RutaBasePruebas, "03_CERTIFICADOS_VERIFICADOS");
+        private readonly string rutaCudIlegibles = Path.Combine(ConexionAccess.RutaBasePruebas, "04_ILEGIBLES");
+        private readonly string rutaCudSepararQr = Path.Combine(ConexionAccess.RutaBasePruebas, "SepararQR");
 
 
         private int _idCudEditando = 0;
@@ -117,7 +125,7 @@ namespace IndexadorCopidis
         private bool _configurandoBloquesCertificado = false;
         private PerfilResolucion _perfilActual = PerfilResolucion.Escala145;
         private const float PORCENTAJE_MARGEN_SUPERIOR_CERTIFICADO = 0.03f;
-        private const float PORCENTAJE_ALTO_UTIL_CERTIFICADO = 0.62f;
+        private const float PORCENTAJE_ALTO_UTIL_CERTIFICADO = 0.67f; // Incluye fecha de emisión del CUD QR.
 
         // Recorte lateral del certificado.
         // 0.04f = recorta 4% a la izquierda y 4% a la derecha.
@@ -264,49 +272,68 @@ namespace IndexadorCopidis
 
         private Bitmap RenderizarPdfActualAltaDefinicionParaOcr()
         {
-            if (string.IsNullOrWhiteSpace(RutaNombreImagen))
+            if (string.IsNullOrWhiteSpace(RutaNombreImagen) ||
+                !File.Exists(RutaNombreImagen) ||
+                pictureBox1.Image == null)
             {
-                Debug.WriteLine("[OCR HD] RutaNombreImagen vacía. No se puede renderizar PDF HD.");
-                return null;
-            }
-
-            if (!File.Exists(RutaNombreImagen))
-            {
-                Debug.WriteLine("[OCR HD] No existe el PDF actual: " + RutaNombreImagen);
-                return null;
-            }
-
-            if (pictureBox1.Image == null)
-            {
-                Debug.WriteLine("[OCR HD] pictureBox1.Image es null. No hay referencia visual.");
+                Debug.WriteLine("[OCR HD] PDF o imagen visual no disponible.");
                 return null;
             }
 
             try
             {
-                int anchoBase = pictureBox1.Image.Width;
-                int altoBase = pictureBox1.Image.Height;
+                // La imagen del PictureBox YA ESTÁ RECORTADA. Sus dimensiones
+                // NO pueden utilizarse como tamaño de la página PDF completa:
+                // hacerlo cambia la relación de aspecto y mueve los ROI OCR.
+                float fraccionAnchoVisible =
+                    1.0f - PORCENTAJE_MARGEN_IZQUIERDO_CERTIFICADO -
+                    PORCENTAJE_MARGEN_DERECHO_CERTIFICADO;
 
-                if (anchoBase <= 0 || altoBase <= 0)
+                float fraccionAltoVisible =
+                    ObtenerPorcentajeAltoUtilCertificado() -
+                    PORCENTAJE_MARGEN_SUPERIOR_CERTIFICADO;
+
+                if (fraccionAnchoVisible <= 0 || fraccionAltoVisible <= 0)
                     return null;
-
-                int anchoRender = anchoBase * FACTOR_RENDER_OCR_CUADRANTE;
-                int altoRender = altoBase * FACTOR_RENDER_OCR_CUADRANTE;
-
-                int ladoMayor = Math.Max(anchoRender, altoRender);
-
-                if (ladoMayor > MAX_LADO_RENDER_OCR_CUADRANTE)
-                {
-                    float escala = (float)MAX_LADO_RENDER_OCR_CUADRANTE / ladoMayor;
-
-                    anchoRender = Math.Max(1, (int)(anchoRender * escala));
-                    altoRender = Math.Max(1, (int)(altoRender * escala));
-                }
 
                 using (PdfDocument pdfDocument = PdfDocument.Load(RutaNombreImagen))
                 {
                     if (pdfDocument.PageCount <= 0)
                         return null;
+
+                    SizeF tamanioPagina = pdfDocument.PageSizes[0];
+
+                    if (tamanioPagina.Width <= 0 || tamanioPagina.Height <= 0)
+                        return null;
+
+                    // Restituimos el ancho de la hoja completa y conservamos
+                    // la relación de aspecto REAL que tiene el PDF.
+                    double relacionPagina =
+                        (double)tamanioPagina.Width / tamanioPagina.Height;
+
+                    double anchoCompletoVisual =
+                        pictureBox1.Image.Width / (double)fraccionAnchoVisible;
+
+                    int anchoRender = Math.Max(
+                        1,
+                        (int)Math.Round(
+                            anchoCompletoVisual * FACTOR_RENDER_OCR_CUADRANTE));
+
+                    int altoRender = Math.Max(
+                        1,
+                        (int)Math.Round(anchoRender / relacionPagina));
+
+                    AjustarTamanioMaximo(
+                        ref anchoRender,
+                        ref altoRender,
+                        MAX_LADO_RENDER_OCR_CUADRANTE);
+
+                    Debug.WriteLine("[OCR HD] Tamaño imagen visual recortada: " +
+                        pictureBox1.Image.Width + "x" + pictureBox1.Image.Height);
+                    Debug.WriteLine("[OCR HD] Relación PDF completo: " +
+                        relacionPagina.ToString("0.0000", CultureInfo.InvariantCulture));
+                    Debug.WriteLine("[OCR HD] Render PDF completo: " +
+                        anchoRender + "x" + altoRender);
 
                     using (Image render = pdfDocument.Render(
                         0,
@@ -318,14 +345,19 @@ namespace IndexadorCopidis
                     {
                         using (Bitmap completo = new Bitmap(render))
                         {
-                            return RecortarAreaUtilCertificado(completo);
+                            Bitmap recorte = RecortarAreaUtilCertificado(completo);
+
+                            Debug.WriteLine("[OCR HD] Imagen OCR recortada: " +
+                                recorte.Width + "x" + recorte.Height);
+
+                            return recorte;
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine("[OCR HD][ERROR] No se pudo renderizar PDF en alta definición.");
+                Debug.WriteLine("[OCR HD][ERROR] No se pudo renderizar PDF HD.");
                 Debug.WriteLine(ex.ToString());
                 return null;
             }
@@ -509,6 +541,7 @@ namespace IndexadorCopidis
         public FormCopidis(Entidades.Indexador pIndexador)
         {
             InitializeComponent();
+            Text = "Indexador CUD QR - PRUEBAS (Escritorio)";
 
     
 
@@ -1269,6 +1302,10 @@ namespace IndexadorCopidis
                             string rutaLote =
                                 loteDir.FullName;
 
+                            // No seleccionar carpetas de lote vacías durante las pruebas.
+                            if (!LoteTieneDocumentosPendientes(rutaLote))
+                                continue;
+
                             string usuarioAsignado =
                                 datos.Consultaloteasignado(
                                     rutaLote);
@@ -1344,7 +1381,9 @@ namespace IndexadorCopidis
 
         private bool LoteTieneDocumentosPendientes(string rutaLote)
         {
-            if (string.IsNullOrWhiteSpace(rutaLote))
+            // Una base de datos de prueba copiada puede contener lotes antiguos en J:\.
+            // Nunca reanudar ni operar sobre esas rutas de producción.
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
                 return false;
 
             if (!Directory.Exists(rutaLote))
@@ -1407,6 +1446,14 @@ namespace IndexadorCopidis
         {
             if (string.IsNullOrWhiteSpace(rutaPdfActual))
                 return;
+
+            // En pruebas OCR manual no es obligatorio tener una base
+            // de preprocesamiento. Nunca consultar la original de J:\.
+            if (!File.Exists(ConexionAccess.RutaBDPreprocesamientoPruebas))
+            {
+                Debug.WriteLine("[PREINDEX][PRUEBAS] Sin base local: se omite precarga.");
+                return;
+            }
 
             try
             {
@@ -1838,6 +1885,13 @@ namespace IndexadorCopidis
 
             string origen = txtRutaLote.Text;
 
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(origen))
+            {
+                MessageBox.Show("Modo pruebas: no se permite mover un lote fuera de la carpeta local de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(origen) || !Directory.Exists(origen))
             {
                 MessageBox.Show(
@@ -1922,6 +1976,17 @@ namespace IndexadorCopidis
 
         private async void CargarDocumentosEnSegundoPlano(string rutaLote)
         {
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show(
+                    "Modo pruebas: el lote debe encontrarse dentro de la carpeta local del Escritorio.",
+                    "Indexador CUD QR - PRUEBAS",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                btnSeleccionarLote.Enabled = true;
+                return;
+            }
+
             if (!Directory.Exists(rutaLote))
             {
                 MessageBox.Show(
@@ -2746,7 +2811,7 @@ namespace IndexadorCopidis
 
             valido &= ValidarYMarcar(
                 TxtDiagnostico,
-                IndexadorCudService.ValidarObligatorio(TxtDiagnostico.Text, "Diagnóstico"),
+                IndexadorCudService.ValidarObligatorio(TxtDiagnostico.Text, "Condición de salud"),
                 ref primerError);
 
             // ==========================================================
@@ -3384,6 +3449,15 @@ namespace IndexadorCopidis
             nombreFinalVerificado = string.Empty;
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show(
+                    "Modo pruebas: no se puede grabar un lote ubicado fuera del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
             string nombreLote = ObtenerNombreCarpetaLoteActual();
 
             string archivoEntrada = nombreOriginalSinExtension + ".pdf";
@@ -3838,8 +3912,8 @@ namespace IndexadorCopidis
             TxtCertBloque3.Clear();
             TxtCertBloque4.Clear();
             TxtCertBloque5.Clear();
-            TxtCertBloque6.Text = "CBA";
-            TxtCertBloque7.Text = "536";
+            TxtCertBloque6.Text = "CIU";
+            TxtCertBloque7.Text = "13650";
 
             TxtApellidoNombre.Clear();
             TxtNumDNI.Clear();
@@ -4277,6 +4351,11 @@ namespace IndexadorCopidis
 
         private void EliminarArchivoOrigenConReintentos(string rutaOrigen)
         {
+            // Defensa adicional: nunca eliminar PDFs del circuito de producción.
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaOrigen))
+                throw new InvalidOperationException(
+                    "Modo pruebas: se bloqueó la eliminación de un PDF fuera del Escritorio de pruebas.");
+
             if (!File.Exists(rutaOrigen))
                 return;
 
@@ -4615,15 +4694,13 @@ namespace IndexadorCopidis
         {
             _zonasSugeridasOcrCud.Clear();
 
-            // Coordenadas originales del certificado completo:
-            // X, Y, Ancho, Alto sobre el PDF entero.
-            // En versión 2 se convierten automáticamente al área superior visible.
-            // Si cambiás PORCENTAJE_ALTO_UTIL_CERTIFICADO, las zonas se recalculan solas.
-
-            RectangleF zonaNumeroCertificado = CrearZonaOcrDesdeCertificadoCompleto(0.49f, 0.052f, 0.46f, 0.038f);
+            // CUD con QR (modelo 2024): coordenadas del PDF COMPLETO.
+            // Se convierten al recorte visible automáticamente.
+            // El operador puede mover o redibujar cada recuadro.
+            RectangleF zonaNumeroCertificado =
+                CrearZonaOcrDesdeCertificadoCompleto(0.33f, 0.088f, 0.40f, 0.030f);
 
             _zonasSugeridasOcrCud[TxtNumeCert] = zonaNumeroCertificado;
-
             _zonasSugeridasOcrCud[TxtCertBloque1] = zonaNumeroCertificado;
             _zonasSugeridasOcrCud[TxtCertBloque2] = zonaNumeroCertificado;
             _zonasSugeridasOcrCud[TxtCertBloque3] = zonaNumeroCertificado;
@@ -4633,46 +4710,39 @@ namespace IndexadorCopidis
             _zonasSugeridasOcrCud[TxtCertBloque7] = zonaNumeroCertificado;
 
             _zonasSugeridasOcrCud[TxtApellidoNombre] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.27f, 0.11f, 0.30f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.24f, 0.135f, 0.49f, 0.027f);
             _zonasSugeridasOcrCud[CmbSexo] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumDNI] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.19f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumCuil] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.52f, 0.13f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.44f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtFechaNac] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.82f, 0.12f, 0.13f, 0.038f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.58f, 0.164f, 0.18f, 0.035f);
 
+            // La condición de salud se imprime debajo del rótulo, no en la misma línea.
             _zonasSugeridasOcrCud[TxtDiagnostico] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.22f, 0.16f, 0.46f, 0.045f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.248f, 0.79f, 0.037f);
 
+            // Los cuatro grupos CIF ahora se encuentran bajo "PERFIL DE FUNCIONAMIENTO".
             _zonasSugeridasOcrCud[TxtFuncionesCorporales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.24f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.308f, 0.72f, 0.041f);
             _zonasSugeridasOcrCud[TxtEstructurasCorporales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.28f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.353f, 0.72f, 0.035f);
             _zonasSugeridasOcrCud[TxtActividad_Particip] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.08f, 0.32f, 0.84f, 0.042f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.397f, 0.73f, 0.043f);
             _zonasSugeridasOcrCud[TxtFactoresAmbientales] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.28f, 0.36f, 0.40f, 0.045f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.15f, 0.449f, 0.73f, 0.040f);
             _zonasSugeridasOcrCud[TxtOrientacion] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.095f, 0.42f, 0.84f, 0.050f);
-
-            _zonasSugeridasOcrCud[TxtFechaVencimiento] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.25f, 0.465f, 0.20f, 0.025f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.10f, 0.500f, 0.78f, 0.052f);
             _zonasSugeridasOcrCud[CmbAcomapante] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.16f, 0.495f, 0.19f, 0.035f);
-
+                CrearZonaOcrDesdeCertificadoCompleto(0.18f, 0.556f, 0.16f, 0.032f);
             _zonasSugeridasOcrCud[TxtFechaEmision] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.695f, 0.55f, 0.25f, 0.040f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.70f, 0.589f, 0.18f, 0.039f);
+
+            // Sin cuadrante para fecha de vencimiento: "FECHA DE ACTUALIZACIÓN"
+            // suele indicar MM/AAAA, y NO reemplaza el vencimiento completo.
+            // Emisión y vencimiento se triangulan desde el número de certificado.
         }
 
         private void ControlCarga_GotFocusOcr(object sender, EventArgs e)
@@ -4798,6 +4868,41 @@ namespace IndexadorCopidis
                 return Rectangle.Empty;
 
             return interseccion;
+        }
+
+        /// <summary>
+        /// Transforma un ROI expresado en píxeles de la imagen visual recortada
+        /// a los píxeles de otra representación de ESA MISMA área (OCR HD).
+        /// </summary>
+        private static Rectangle EscalarRectanguloEntreImagenes(
+            Rectangle origen,
+            Size tamanioOrigen,
+            Size tamanioDestino)
+        {
+            if (origen.Width <= 0 || origen.Height <= 0 ||
+                tamanioOrigen.Width <= 0 || tamanioOrigen.Height <= 0 ||
+                tamanioDestino.Width <= 0 || tamanioDestino.Height <= 0)
+            {
+                return Rectangle.Empty;
+            }
+
+            double factorX = (double)tamanioDestino.Width / tamanioOrigen.Width;
+            double factorY = (double)tamanioDestino.Height / tamanioOrigen.Height;
+
+            int izquierda = (int)Math.Round(origen.Left * factorX);
+            int arriba = (int)Math.Round(origen.Top * factorY);
+            int derecha = (int)Math.Round(origen.Right * factorX);
+            int abajo = (int)Math.Round(origen.Bottom * factorY);
+
+            izquierda = Math.Max(0, Math.Min(tamanioDestino.Width, izquierda));
+            derecha = Math.Max(0, Math.Min(tamanioDestino.Width, derecha));
+            arriba = Math.Max(0, Math.Min(tamanioDestino.Height, arriba));
+            abajo = Math.Max(0, Math.Min(tamanioDestino.Height, abajo));
+
+            if (derecha <= izquierda || abajo <= arriba)
+                return Rectangle.Empty;
+
+            return Rectangle.FromLTRB(izquierda, arriba, derecha, abajo);
         }
 
         private Rectangle ConvertirRectanguloVistaAImagenParaZoom(Rectangle rectanguloVista)
@@ -5164,8 +5269,26 @@ namespace IndexadorCopidis
         Debug.WriteLine("[OCR CUADRANTE] Rectángulo vista: " + _rectanguloSeleccionVistaOcr);
 
                 Rectangle rectanguloVistaOcr = _rectanguloSeleccionVistaOcr;
-                Size tamanioPictureBox = pictureBox1.ClientSize;
-                PictureBoxSizeMode sizeMode = pictureBox1.SizeMode;
+
+                // La transformación empieza SIEMPRE en la imagen visible:
+                // esta es la que el operador usa para dibujar el recuadro.
+                Rectangle rectanguloImagenVisual =
+                    ConvertirRectanguloVistaAImagenParaZoom(rectanguloVistaOcr);
+
+                Size tamanioImagenVisual = pictureBox1.Image == null
+                    ? Size.Empty
+                    : pictureBox1.Image.Size;
+
+                if (rectanguloImagenVisual == Rectangle.Empty ||
+                    tamanioImagenVisual.Width <= 0 ||
+                    tamanioImagenVisual.Height <= 0)
+                {
+                    InformarEstadoOcr("El recuadro no coincide con la imagen visible.");
+                    _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+                    pictureBox1.Invalidate();
+                    destino.Focus();
+                    return;
+                }
 
                 Bitmap imagenParaOcr = ObtenerImagenOcrHdDesdeCache();
 
@@ -5186,18 +5309,38 @@ namespace IndexadorCopidis
                     return;
                 }
 
+                // Escalamos el mismo rectángulo visual a los píxeles de
+                // la imagen HD. NO volvemos a ejecutar Zoom con otra imagen.
+                Rectangle rectanguloImagenOcr = EscalarRectanguloEntreImagenes(
+                    rectanguloImagenVisual,
+                    tamanioImagenVisual,
+                    imagenParaOcr.Size);
+
+                Debug.WriteLine("[OCR MAPEO] Selección en PictureBox: " + rectanguloVistaOcr);
+                Debug.WriteLine("[OCR MAPEO] Imagen visible: " + tamanioImagenVisual);
+                Debug.WriteLine("[OCR MAPEO] ROI en imagen visible: " + rectanguloImagenVisual);
+                Debug.WriteLine("[OCR MAPEO] Imagen HD: " + imagenParaOcr.Size);
+                Debug.WriteLine("[OCR MAPEO] ROI definitivo HD: " + rectanguloImagenOcr);
+
                 ResultadoOcrCuadrante resultado;
 
                 using (imagenParaOcr)
                 {
+                    if (rectanguloImagenOcr == Rectangle.Empty)
+                    {
+                        InformarEstadoOcr("No se pudo traducir el recuadro a la imagen OCR.");
+                        _estadoCuadranteOcr = EstadoCuadranteOcr.ErrorNaranja;
+                        pictureBox1.Invalidate();
+                        destino.Focus();
+                        return;
+                    }
+
                     resultado = await Task.Run(() =>
                     {
-                        return _ocrPorCuadranteService.LeerTextoDesdeSeleccionDetalle(
+                        return _ocrPorCuadranteService.LeerTextoDesdeRectanguloImagenDetalle(
                             imagenParaOcr,
-                            tamanioPictureBox,
-                            sizeMode,
-                            rectanguloVistaOcr,
-                            guardarDebug: true);
+                            rectanguloImagenOcr,
+                            rectanguloVistaOcr);
                     });
                 }
 
@@ -5502,7 +5645,7 @@ namespace IndexadorCopidis
 
             Match m = Regex.Match(
                 t,
-                @"[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3}",
+                @"[A-Z]{3}-\d{2}-\d{11}-\d{8}-\d{8}-[A-Z]{3}-\d{3,5}",
                 RegexOptions.IgnoreCase);
 
             if (!m.Success)
@@ -5856,6 +5999,9 @@ namespace IndexadorCopidis
                     " ",
                     RegexOptions.IgnoreCase);
 
+                // CUD QR: eliminar "CONDICIÓN DE SALUD" aun si viene en una línea separada.
+                linea = Regex.Replace(linea, @"\bCONDICI[OÓ0]N\s+DE\s+SALUD\b\s*[:\-]?", " ", RegexOptions.IgnoreCase);
+
                 // ==========================================================
                 // 3) LIMPIEZA DE SEPARADORES
                 // ==========================================================
@@ -5910,6 +6056,7 @@ namespace IndexadorCopidis
             resultado = Regex.Replace(resultado, @"\s+", " ").Trim();
 
             // Limpieza final de rótulos por si quedaron después de unir líneas.
+            resultado = Regex.Replace(resultado, @"\bCONDICI[OÓ0]N\s+DE\s+SALUD\b\s*[:\-]?", " ", RegexOptions.IgnoreCase);
             resultado = Regex.Replace(
                 resultado,
                 @"\bD\s*I\s*A?\s*G\s*N\s*[OÓ0]\s*S\s*T\s*I\s*C\s*[O0]\b\s*[:\-]?",
@@ -6150,6 +6297,95 @@ namespace IndexadorCopidis
 
 
 
+        // ==========================================================
+        // CUD QR - EXTRAER APELLIDO Y NOMBRE DE LA FILA DE IDENTIDAD
+        // ==========================================================
+        private string ExtraerApellidoNombreDesdeOcr(string textoOcr)
+        {
+            if (string.IsNullOrWhiteSpace(textoOcr))
+                return string.Empty;
+
+            // No perder los saltos de línea antes de seleccionar el dato útil.
+            string texto = textoOcr.Replace("\r\n", "\n").Replace('\r', '\n');
+
+            // Rótulos del certificado y de la siguiente fila.
+            const string rotuloNombre =
+                @"\bAPELLID[O0]\s+Y\s+NOMBR(?:E|ES)\b\s*[:;\-]?";
+
+            const string inicioSiguienteCampo =
+                @"\b(?:TIPO\s+Y|CUIT\s*/\s*CUIL|F\s*[./]?\s*NAC(?:IMIENTO)?|" +
+                @"CONDICI[OÓ0]N\s+DE\s+SALUD|PERFIL\s+DE\s+FUNCIONAMIENTO)\b";
+
+            // Si hay rótulo en el texto, descartar TODO lo anterior.
+            // Esto evita aceptar una cabecera institucional como nombre.
+            Match rotuloInicial = Regex.Match(
+                texto, rotuloNombre, RegexOptions.IgnoreCase);
+
+            if (rotuloInicial.Success)
+                texto = texto.Substring(rotuloInicial.Index + rotuloInicial.Length);
+
+            // En el CUD QR el valor puede venir junto al rótulo o debajo.
+            string[] lineas = texto.Split(
+                new[] { '\n' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string original in lineas)
+            {
+                string linea = original.Trim();
+
+                if (linea.Length == 0)
+                    continue;
+
+                // Si la selección tomó accidentalmente la fila del DNI,
+                // cortar antes de su título, no incorporar datos ajenos.
+                Match siguiente = Regex.Match(
+                    linea, inicioSiguienteCampo, RegexOptions.IgnoreCase);
+
+                if (siguiente.Success)
+                    linea = linea.Substring(0, siguiente.Index);
+
+                linea = LimpiarRuidoTextoLibreOcr(linea);
+
+                // Puede quedar un fragmento del rótulo porque el rectángulo
+                // comience justo después de "NOMBR": por ejemplo "ES: ROSSI...".
+                linea = Regex.Replace(
+                    linea,
+                    @"^(?:NOMBR(?:E|ES)|APELLIDO|ES)\s*[:;\-]\s*",
+                    "",
+                    RegexOptions.IgnoreCase);
+
+                linea = Regex.Replace(
+                    linea, @"^[^\p{L}]+|[^\p{L}]+$", " ").Trim();
+
+                if (string.IsNullOrWhiteSpace(linea))
+                    continue;
+
+                // No inventar un nombre a partir de códigos o textos ajenos.
+                if (Regex.IsMatch(linea, @"\d"))
+                    continue;
+
+                if (Regex.Matches(linea, @"\p{L}+").Count < 2)
+                    continue;
+
+                string candidato = IndexadorCudService.NormalizarNombreApellido(linea);
+
+                // Mantener esta validación: más de 120 indica recorte
+                // incorrecto o lectura de otros campos; nunca truncar.
+                if (candidato.Length > 120)
+                    continue;
+
+                ResultadoValidacion validacion =
+                    IndexadorCudService.ValidarApellidoNombrePreprocesamiento(candidato);
+
+                if (validacion.EsValido)
+                    return candidato;
+            }
+
+            // Sin coincidencia inequívoca: solicitar ajustar recorte, en vez
+            // de completar el nombre con texto institucional accidental.
+            return string.Empty;
+        }
+
         private ResultadoAplicacionOcr PrepararOcrTextoLibre(
      string textoOcr,
      string nombreCampo,
@@ -6157,6 +6393,27 @@ namespace IndexadorCopidis
      int minimoCaracteres)
         {
             string crudo = textoOcr ?? string.Empty;
+
+            // En CUD QR el OCR puede arrastrar "APELLIDO Y NOMBRES" o incluso
+            // campos vecinos. Extraer el valor ANTES de normalizar las líneas.
+            // No se amplía ni trunca silenciosamente el límite de 120 caracteres.
+            if (nombreCampo == "Apellido y nombre")
+            {
+                string nombreExtraido = ExtraerApellidoNombreDesdeOcr(crudo);
+
+                Debug.WriteLine("[OCR NOMBRE] Longitud cruda: " + crudo.Length);
+                Debug.WriteLine("[OCR NOMBRE] Longitud extraída: " + nombreExtraido.Length);
+
+                if (string.IsNullOrWhiteSpace(nombreExtraido))
+                {
+                    return ResultadoAplicacionOcr.Rechazar(
+                        "No se pudo aislar el apellido y nombre. El OCR podría estar leyendo " +
+                        "el rótulo u otros campos. Ajuste el recuadro sobre la línea del nombre.",
+                        crudo);
+                }
+
+                crudo = nombreExtraido;
+            }
 
             Debug.WriteLine("==================================================");
             Debug.WriteLine("[OCR TEXTO LIBRE] Campo: " + nombreCampo);
@@ -6887,8 +7144,8 @@ namespace IndexadorCopidis
             {
                 // Valores por defecto
                 TxtCertBloque1.Text = "ARG";
-                TxtCertBloque6.Text = "CBA";
-                TxtCertBloque7.Text = "536";
+                TxtCertBloque6.Text = "CIU";
+                TxtCertBloque7.Text = "13650";
 
                 // Largo máximo por bloque
                 TxtCertBloque1.MaxLength = 3;   // ARG
@@ -6896,8 +7153,8 @@ namespace IndexadorCopidis
                 TxtCertBloque3.MaxLength = 11;  // DNI interno con ceros
                 TxtCertBloque4.MaxLength = 8;   // Fecha emisión yyyyMMdd
                 TxtCertBloque5.MaxLength = 8;   // Fecha vencimiento yyyyMMdd
-                TxtCertBloque6.MaxLength = 3;   // CBA
-                TxtCertBloque7.MaxLength = 3;   // 536
+                TxtCertBloque6.MaxLength = 3;   // CIU / CBA
+                TxtCertBloque7.MaxLength = 5;   // 13650 (QR), 536 (tradicional)
 
                 // Mayúsculas
                 TxtCertBloque1.CharacterCasing = CharacterCasing.Upper;
@@ -6960,8 +7217,8 @@ namespace IndexadorCopidis
                 _toolTipCud.SetToolTip(TxtCertBloque3, "DNI interno. Puede cargar el DNI sin ceros; al salir se completa a 11 dígitos.");
                 _toolTipCud.SetToolTip(TxtCertBloque4, "Fecha de emisión en formato AAAAMMDD.");
                 _toolTipCud.SetToolTip(TxtCertBloque5, "Fecha de vencimiento en formato AAAAMMDD.");
-                _toolTipCud.SetToolTip(TxtCertBloque6, "Jurisdicción. Normalmente CBA.");
-                _toolTipCud.SetToolTip(TxtCertBloque7, "Código final. Normalmente 536.");
+                _toolTipCud.SetToolTip(TxtCertBloque6, "Jurisdicción del CUD QR: CIU (en certificados anteriores puede ser CBA).");
+                _toolTipCud.SetToolTip(TxtCertBloque7, "Código final del CUD QR: 13650 (en certificados anteriores puede ser 536).");
             }
             finally
             {
@@ -7110,14 +7367,14 @@ namespace IndexadorCopidis
                     txt.Text = Regex.Replace(txt.Text.ToUpperInvariant(), @"[^A-Z]", "");
 
                     if (string.IsNullOrWhiteSpace(txt.Text))
-                        txt.Text = "CBA";
+                        txt.Text = "CIU";
                 }
                 else if (txt == TxtCertBloque7)
                 {
                     string final = Regex.Replace(txt.Text, @"\D", "");
 
                     if (string.IsNullOrWhiteSpace(final))
-                        final = "536";
+                        final = "13650";
 
                     txt.Text = final;
                 }
@@ -7141,10 +7398,10 @@ namespace IndexadorCopidis
                 b1 = "ARG";
 
             if (string.IsNullOrWhiteSpace(b6))
-                b6 = "CBA";
+                b6 = "CIU";
 
             if (string.IsNullOrWhiteSpace(b7))
-                b7 = "536";
+                b7 = "13650";
 
             if (!string.IsNullOrWhiteSpace(b3) && b3.Length <= 11)
                 b3 = b3.PadLeft(11, '0');
@@ -7563,6 +7820,14 @@ namespace IndexadorCopidis
             }
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show("Modo pruebas: solo se pueden separar PDFs dentro del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             string rutaOrigenPdf = Path.Combine(rutaLote, nombreOriginal + ".pdf");
 
             if (!File.Exists(rutaOrigenPdf))
@@ -7655,6 +7920,14 @@ namespace IndexadorCopidis
             }
 
             string rutaLote = txtRutaLote.Text;
+
+            if (!ConexionAccess.EsRutaDeEntradaPrueba(rutaLote))
+            {
+                MessageBox.Show("Modo pruebas: solo se pueden separar PDFs dentro del Escritorio de pruebas.",
+                    "Indexador CUD QR - PRUEBAS", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             string rutaOrigenPdf = Path.Combine(
                 rutaLote,
                 nombreOriginal + ".pdf");
