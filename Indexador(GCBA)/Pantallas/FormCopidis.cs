@@ -4631,19 +4631,19 @@ namespace IndexadorCopidis
             _zonasSugeridasOcrCud[TxtCertBloque7] = zonaNumeroCertificado;
 
             _zonasSugeridasOcrCud[TxtApellidoNombre] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.132f, 0.47f, 0.032f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.24f, 0.132f, 0.49f, 0.032f);
             _zonasSugeridasOcrCud[CmbSexo] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumDNI] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.26f, 0.164f, 0.19f, 0.035f);
             _zonasSugeridasOcrCud[TxtNumCuil] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.48f, 0.164f, 0.13f, 0.035f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.44f, 0.164f, 0.17f, 0.035f);
             _zonasSugeridasOcrCud[TxtFechaNac] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.58f, 0.164f, 0.18f, 0.035f);
 
             // La condición de salud se imprime debajo del rótulo, no en la misma línea.
             _zonasSugeridasOcrCud[TxtDiagnostico] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.250f, 0.79f, 0.041f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.09f, 0.256f, 0.79f, 0.037f);
 
             // Los cuatro grupos CIF ahora se encuentran bajo "PERFIL DE FUNCIONAMIENTO".
             _zonasSugeridasOcrCud[TxtFuncionesCorporales] =
@@ -4659,7 +4659,7 @@ namespace IndexadorCopidis
             _zonasSugeridasOcrCud[CmbAcomapante] =
                 CrearZonaOcrDesdeCertificadoCompleto(0.18f, 0.556f, 0.16f, 0.032f);
             _zonasSugeridasOcrCud[TxtFechaEmision] =
-                CrearZonaOcrDesdeCertificadoCompleto(0.68f, 0.589f, 0.20f, 0.039f);
+                CrearZonaOcrDesdeCertificadoCompleto(0.70f, 0.589f, 0.18f, 0.039f);
 
             // Sin cuadrante para fecha de vencimiento: "FECHA DE ACTUALIZACIÓN"
             // suele indicar MM/AAAA, y NO reemplaza el vencimiento completo.
@@ -7105,7 +7105,7 @@ namespace IndexadorCopidis
                     txt.Text = Regex.Replace(txt.Text.ToUpperInvariant(), @"[^A-Z]", "");
 
                     if (string.IsNullOrWhiteSpace(txt.Text))
-                        txt.Text = "CBA";
+                        txt.Text = "CIU";
                 }
                 else if (txt == TxtCertBloque7)
                 {
